@@ -3,6 +3,7 @@ import { AppWrapper } from "./AppWrapper";
 import { IconToggle } from "./component/IconToggle";
 import { Codearea } from "./component/Codearea";
 import { ErrorMessage } from "./component/ErrorMessage";
+import { Timeline } from "./component/Timeline";
 import { LoaderPane } from "./component/LoaderPane";
 import { Box, Flex } from "./layout/Layout";
 import { Sidebar, SidebarInfo, SidebarShare } from "./Sidebars";
@@ -232,6 +233,8 @@ const getMsAtLine = (
 // icons
 //
 
+const FOLLOW_PAUSE_MS = 3000;
+
 const PLAY_PATHS = {
     paused: ["M 0 0 L 12 6 L 0 12 Z"],
     playing: ["M 0 0 L 4 0 L 4 12 L 0 12 Z", "M 8 0 L 12 0 L 12 12 L 8 12 Z"],
@@ -337,7 +340,10 @@ export function XenpaperApp(props: Props): React.ReactElement {
 
     const playing = useDendriform<boolean>(false);
     const selectedLine = useDendriform<number>(0);
+    // position chosen on the timeline while stopped, used as the next play start
+    const pendingSeekMs = useRef<number | null>(null);
     selectedLine.useChange((line) => {
+        pendingSeekMs.current = null;
         soundEngine.setLoopStart(
             getMsAtLine(tuneForm.value.tune, parsedForm.value.data.value.chars, line)
         );
@@ -430,16 +436,26 @@ export function XenpaperApp(props: Props): React.ReactElement {
     // sound engine callbacks
     //
 
-    const handleSetPlayback = useCallback((play: boolean) => {
-        if (parsedForm.value.error) return;
-
-        soundEngine.gotoMs(
+    const getLineStartMs = useCallback(
+        (): number =>
             getMsAtLine(
                 tuneForm.value.tune,
                 parsedForm.value.data.value.chars,
                 selectedLine.value
-            )
-        );
+            ),
+        []
+    );
+
+    const getIdleMs = useCallback(
+        (): number => pendingSeekMs.current ?? getLineStartMs(),
+        []
+    );
+
+    const handleSetPlayback = useCallback((play: boolean) => {
+        if (parsedForm.value.error) return;
+
+        soundEngine.gotoMs(play ? getIdleMs() : getLineStartMs());
+        pendingSeekMs.current = null;
 
         playing.set(play);
 
@@ -455,6 +471,14 @@ export function XenpaperApp(props: Props): React.ReactElement {
 
     const handleTogglePlayback = useCallback((state: string) => {
         handleSetPlayback(state === "paused");
+    }, []);
+
+    const handleSeek = useCallback((ms: number) => {
+        if (soundEngine.playing()) {
+            soundEngine.gotoMs(ms);
+        } else {
+            pendingSeekMs.current = ms;
+        }
     }, []);
 
     const handleToggleLoop = useCallback(() => {
@@ -512,7 +536,7 @@ export function XenpaperApp(props: Props): React.ReactElement {
         handleSetPlayback(true);
     }, []);
 
-    const codepaneContainerProps = {};
+    const codepaneContainerProps = { "data-codepane": true };
 
     //
     // elements
@@ -604,6 +628,15 @@ export function XenpaperApp(props: Props): React.ReactElement {
 
     const htmlTitle = <SetHtmlTitle tuneForm={tuneForm} />;
 
+    const timeline = parsedForm.render("data", (form) => (
+        <Timeline
+            engine={soundEngine}
+            scoreKey={form.useValue()}
+            getIdleMs={getIdleMs}
+            onSeek={handleSeek}
+        />
+    ));
+
     const openOnXenpaper = tuneForm.render("url", (form) => (
         <EditOnXenpaperButton href={form.useValue()} target="_blank">
             Edit on Xenpaper
@@ -620,6 +653,7 @@ export function XenpaperApp(props: Props): React.ReactElement {
                 code={code}
                 openOnXenpaper={openOnXenpaper}
                 htmlTitle={htmlTitle}
+                timeline={timeline}
                 codepaneContainerProps={codepaneContainerProps}
             />
         );
@@ -632,6 +666,7 @@ export function XenpaperApp(props: Props): React.ReactElement {
             loop={loop}
             code={code}
             htmlTitle={htmlTitle}
+            timeline={timeline}
             sidebarToggles={sidebarToggles}
             sidebar={sidebar}
             codepaneContainerProps={codepaneContainerProps}
@@ -651,6 +686,7 @@ type NormalLayoutProps = {
     htmlTitle: React.ReactNode;
     sidebarToggles: React.ReactNode;
     sidebar: React.ReactNode;
+    timeline: React.ReactNode;
     codepaneContainerProps: { [prop: string]: unknown };
 };
 
@@ -663,6 +699,7 @@ function NormalLayout(props: NormalLayoutProps): React.ReactElement {
         htmlTitle,
         sidebarToggles,
         sidebar,
+        timeline,
         codepaneContainerProps,
     } = props;
 
@@ -713,6 +750,7 @@ function NormalLayout(props: NormalLayoutProps): React.ReactElement {
                 {/* sidebars */}
                 {sidebar}
             </Flex>
+            {timeline}
             {htmlTitle}
         </Flex>
     );
@@ -724,6 +762,7 @@ type EmbedLayoutProps = {
     code: React.ReactNode;
     openOnXenpaper: React.ReactNode;
     htmlTitle: React.ReactNode;
+    timeline: React.ReactNode;
     codepaneContainerProps: { [prop: string]: unknown };
 };
 
@@ -734,6 +773,7 @@ function EmbedLayout(props: EmbedLayoutProps): React.ReactElement {
         code,
         htmlTitle,
         openOnXenpaper,
+        timeline,
         codepaneContainerProps,
     } = props;
 
@@ -756,6 +796,7 @@ function EmbedLayout(props: EmbedLayoutProps): React.ReactElement {
                     {code}
                 </Box>
             </Flex>
+            {timeline}
             {htmlTitle}
         </Flex>
     );
@@ -849,6 +890,22 @@ function CodePanel(props: CodePanelProps): React.ReactElement {
     const spansByLineRef = useRef<(HTMLSpanElement | null)[][]>([]);
     const tokensByLineRef = useRef<LineToken[][]>([]);
     const activeSpansRef = useRef<Set<HTMLSpanElement>>(new Set());
+    const followTargetRef = useRef<HTMLSpanElement | null>(null);
+    const lastUserScrollRef = useRef<number>(0);
+
+    useEffect(() => {
+        const markUserScroll = (e: Event) => {
+            // only interactions with the code pane itself should pause following
+            const target = e.target as Element | null;
+            if (target?.closest?.("[data-codepane]")) {
+                lastUserScrollRef.current = performance.now();
+            }
+        };
+        const events = ["wheel", "touchmove", "keydown", "mousedown"];
+        events.forEach((e) => window.addEventListener(e, markUserScroll, { passive: true }));
+        return () =>
+            events.forEach((e) => window.removeEventListener(e, markUserScroll));
+    }, []);
 
     const handleSelectLine = useCallback(
         (line: number) => {
@@ -871,6 +928,7 @@ function CodePanel(props: CodePanelProps): React.ReactElement {
         const nextActive = new Set<HTMLSpanElement>();
         const tokensByLine = tokensByLineRef.current;
         const spansByLine = spansByLineRef.current;
+        let firstActive: HTMLSpanElement | undefined;
 
         for (let l = 0; l < tokensByLine.length; l++) {
             const tokens = tokensByLine[l];
@@ -882,10 +940,28 @@ function CodePanel(props: CodePanelProps): React.ReactElement {
                     const el = spans[t];
                     if (el) {
                         nextActive.add(el);
+                        if (!firstActive) firstActive = el;
                         if (!activeSpans.has(el)) {
                             el.classList.add("active");
                         }
                     }
+                }
+            }
+        }
+
+        // keep the earliest playing note in view, unless the user recently scrolled/typed
+        if (
+            firstActive &&
+            firstActive !== followTargetRef.current &&
+            performance.now() - lastUserScrollRef.current > FOLLOW_PAUSE_MS
+        ) {
+            followTargetRef.current = firstActive;
+            const pane = firstActive.closest("[data-codepane]");
+            if (pane) {
+                const r = firstActive.getBoundingClientRect();
+                const p = pane.getBoundingClientRect();
+                if (r.top < p.top || r.bottom > p.bottom) {
+                    firstActive.scrollIntoView({ block: "center", behavior: "smooth" });
                 }
             }
         }

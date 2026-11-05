@@ -111,14 +111,7 @@ export class SoundEngineTonejs extends SoundEngine {
             await Tone.start();
             this._started = true;
 
-            const onEnd = () => {
-                this.synth.releaseAll();
-                this.trackSynths.forEach(s => s.releaseAll());
-                this._activeNoteEvents.forEach(noteMs => {
-                    this._triggerEvent('note', noteMs, false);
-                });
-                this._activeNoteEvents.clear();
-            };
+            const onEnd = () => this._releaseAll();
 
             Tone.Transport.on('stop', onEnd);
             Tone.Transport.on('loop', onEnd);
@@ -129,6 +122,8 @@ export class SoundEngineTonejs extends SoundEngine {
         await this.start();
         if(this._scoreDirty) {
             this._scheduleScore();
+            // scheduling resets synth volumes, so restore params for the current position
+            this._applyParamsUpTo(this.position());
         }
         Tone.Transport.start();
     }
@@ -139,7 +134,60 @@ export class SoundEngineTonejs extends SoundEngine {
     }
 
     async gotoMs(ms: number): Promise<void> {
+        // silence anything currently sounding so seeking mid-playback doesn't leave hanging notes
+        this._releaseAll();
+        this._applyParamsUpTo(ms);
         Tone.Transport.seconds = ms * 0.001;
+    }
+
+    // params (osc/env/vol) scheduled before a seek point would otherwise be skipped
+    _applyParamsUpTo(ms: number): void {
+        this.scoreMs?.sequence.forEach((item: MoscItemMs): void => {
+            if(item.type === 'PARAM_MS' && item.ms <= ms) {
+                this._applyParam(item as MoscParamMs);
+            }
+        });
+    }
+
+    _releaseAll(): void {
+        this.synth.releaseAll();
+        this.trackSynths.forEach(s => s.releaseAll());
+        this._activeNoteEvents.forEach(noteMs => {
+            this._triggerEvent('note', noteMs, false);
+        });
+        this._activeNoteEvents.clear();
+    }
+
+    _applyParam(paramMs: MoscParamMs): void {
+        const targetSynths = paramMs.track
+            ? [this.getSynth(paramMs.track)]
+            : [this.synth, ...Array.from(this.trackSynths.values())];
+        if(paramMs.value.type === 'osc' && OSC_TYPES_SET.has(paramMs.value.osc)) {
+            targetSynths.forEach(s => s.set({
+                oscillator: {
+                    type: paramMs.value.osc,
+                    volume: OSC_VOLUME
+                }
+            }));
+        }
+        if(paramMs.value.type === 'env') {
+            targetSynths.forEach(s => s.set({
+                envelope: {
+                    attack: paramMs.value.a,
+                    decay: paramMs.value.d,
+                    sustain: paramMs.value.s,
+                    release: paramMs.value.r
+                }
+            }));
+        }
+        if(paramMs.value.type === 'vol') {
+            const db = paramMs.value.vol <= 0
+                ? -Infinity
+                : 20 * Math.log10(paramMs.value.vol);
+            targetSynths.forEach(s => {
+                s.volume.value = db;
+            });
+        }
     }
 
     setLoop(loop: boolean, startMs: number = 0, endMs: number = 0): void {
@@ -170,6 +218,7 @@ export class SoundEngineTonejs extends SoundEngine {
 
         if(this.playing()) {
             this._scheduleScore();
+            this._applyParamsUpTo(this.position());
         } else {
             this._scoreDirty = true;
         }
@@ -235,37 +284,7 @@ export class SoundEngineTonejs extends SoundEngine {
 
             if(item.type === 'PARAM_MS') {
                 const paramMs = item as MoscParamMs;
-                const targetSynths = paramMs.track
-                    ? [this.getSynth(paramMs.track)]
-                    : [this.synth, ...Array.from(this.trackSynths.values())];
-                addEvent(paramMs.ms * 0.001, () => {
-                    if(paramMs.value.type === 'osc' && OSC_TYPES_SET.has(paramMs.value.osc)) {
-                        targetSynths.forEach(s => s.set({
-                            oscillator: {
-                                type: paramMs.value.osc,
-                                volume: OSC_VOLUME
-                            }
-                        }));
-                    }
-                    if(paramMs.value.type === 'env') {
-                        targetSynths.forEach(s => s.set({
-                            envelope: {
-                                attack: paramMs.value.a,
-                                decay: paramMs.value.d,
-                                sustain: paramMs.value.s,
-                                release: paramMs.value.r
-                            }
-                        }));
-                    }
-                    if(paramMs.value.type === 'vol') {
-                        const db = paramMs.value.vol <= 0
-                            ? -Infinity
-                            : 20 * Math.log10(paramMs.value.vol);
-                        targetSynths.forEach(s => {
-                            s.volume.value = db;
-                        });
-                    }
-                });
+                addEvent(paramMs.ms * 0.001, () => this._applyParam(paramMs));
 
                 return;
             }
