@@ -164,7 +164,12 @@ export function Timeline(props: Props): React.ReactElement {
         if (playedRef.current) playedRef.current.style.width = `${pct}%`;
         if (headRef.current) headRef.current.style.left = `${pct}%`;
 
-        const text = `${formatMs(clamped)}|-${formatMs(len - clamped)} / ${formatMs(len)}`;
+        const isSmallScreen =
+            typeof window !== "undefined" && window.innerWidth < 640;
+        const rightText = isSmallScreen
+            ? `/${formatMs(len)}`
+            : `-${formatMs(len - clamped)} / ${formatMs(len)}`;
+        const text = `${formatMs(clamped)}|${rightText}`;
         if (text !== lastTextRef.current) {
             lastTextRef.current = text;
             const [elapsed, remaining] = text.split("|");
@@ -194,7 +199,9 @@ export function Timeline(props: Props): React.ReactElement {
     const handlePointerDown = (e: React.PointerEvent) => {
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);
-        dragMsRef.current = msFromEvent(e);
+        const ms = msFromEvent(e);
+        dragMsRef.current = ms;
+        onSeek(ms);
     };
 
     const handlePointerMove = (e: React.PointerEvent) => {
@@ -302,7 +309,7 @@ export function Timeline(props: Props): React.ReactElement {
                 <Hover ref={hoverRef} />
             </Bar>
             <Time ref={remainingRef} right>
-                -0:00 / 0:00
+                / 0:00
             </Time>
         </Wrapper>
     );
@@ -317,6 +324,12 @@ const Wrapper = styled.div`
     border-top: 1px ${(props) => props.theme.colors.background.light} solid;
     flex-shrink: 0;
     z-index: 4;
+
+    @media all and (max-width: ${(props) => props.theme.widths.sm}) {
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        padding: 0.35rem 0.5rem;
+    }
 `;
 
 const TrackList = styled.div`
@@ -324,6 +337,18 @@ const TrackList = styled.div`
     align-items: center;
     gap: 0.35rem;
     flex-wrap: wrap;
+
+    @media all and (max-width: ${(props) => props.theme.widths.sm}) {
+        width: 100%;
+        order: -1;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 0.2rem;
+        scrollbar-width: none;
+        &::-webkit-scrollbar {
+            display: none;
+        }
+    }
 `;
 
 const TrackPill = styled.button<{ color: string; muted: boolean }>`
@@ -363,24 +388,35 @@ const SoloBadge = styled.span<{ active: boolean }>`
 
 const Time = styled.span<{ right?: boolean }>`
     font-family: ${(props) => props.theme.fonts.mono};
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     color: ${(props) => props.theme.colors.text.placeholder};
     white-space: nowrap;
-    min-width: ${(props) => (props.right ? "6.5rem" : "2.5rem")};
+    min-width: ${(props) => (props.right ? "3rem" : "2.2rem")};
     text-align: ${(props) => (props.right ? "right" : "left")};
     font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+
+    @media all and (min-width: ${(props) => props.theme.widths.sm}) {
+        font-size: 0.8rem;
+        min-width: ${(props) => (props.right ? "6.5rem" : "2.5rem")};
+    }
 `;
 
 const Bar = styled.div`
     position: relative;
     flex-grow: 1;
-    height: 2.5rem;
+    min-width: 0;
+    height: 2.2rem;
     cursor: pointer;
     touch-action: none;
     user-select: none;
     background-color: ${(props) => props.theme.colors.background.light};
     border-radius: 3px;
     outline: none;
+
+    @media all and (min-width: ${(props) => props.theme.widths.sm}) {
+        height: 2.5rem;
+    }
 
     &:focus-visible {
         box-shadow: 0 0 0 2px ${(props) => props.theme.colors.focus};
@@ -429,8 +465,8 @@ const Head = styled.div`
     position: absolute;
     top: -3px;
     bottom: -3px;
-    width: 2px;
-    margin-left: -1px;
+    width: 3px;
+    margin-left: -1.5px;
     background-color: #ffffff;
     box-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
     pointer-events: none;

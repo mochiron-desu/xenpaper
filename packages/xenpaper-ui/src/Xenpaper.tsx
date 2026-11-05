@@ -673,9 +673,24 @@ export function XenpaperApp(props: Props): React.ReactElement {
 
     const sidebarToggles = (
         <>
-            <SideButton onClick={toggleSidebarInfo}>Info</SideButton>
-            <SideButton onClick={toggleSidebarShare}>Share</SideButton>
-            <SideButton onClick={toggleSidebarRuler}>Ruler</SideButton>
+            <SideButton
+                onClick={toggleSidebarInfo}
+                active={sidebarState === "info"}
+            >
+                Info
+            </SideButton>
+            <SideButton
+                onClick={toggleSidebarShare}
+                active={sidebarState === "share"}
+            >
+                Share
+            </SideButton>
+            <SideButton
+                onClick={toggleSidebarRuler}
+                active={sidebarState === "ruler"}
+            >
+                Ruler
+            </SideButton>
         </>
     );
 
@@ -801,27 +816,38 @@ function NormalLayout(props: NormalLayoutProps): React.ReactElement {
     } = props;
 
     return (
-        <Flex height="100vh" flexDirection="column">
+        <Flex height="100vh" flexDirection="column" overflow="hidden">
+            {/* toolbar on mobile */}
+            <Toolbar
+                display={["flex", "none"]}
+                alignItems="center"
+                justifyContent="space-between"
+                width="100%"
+                flexShrink="0"
+                overflowX="auto"
+                borderBottom="1px solid"
+                borderColor="background.light"
+            >
+                <Flex alignItems="center" flexShrink="0">
+                    {playPause}
+                    {undoRedo}
+                    {loop}
+                </Flex>
+                <Flex alignItems="center" flexShrink="0">
+                    {sidebarToggles}
+                </Flex>
+            </Toolbar>
             <Flex
-                display={["block", "flex"]}
+                display={["flex", "flex"]}
+                flexDirection={["column", "row"]}
                 flexGrow="1"
                 flexShrink="1"
                 minHeight="0"
                 position="relative"
+                overflow="hidden"
             >
-                {/* toolbar on mobile */}
-                <Toolbar
-                    display={["flex", "none"]}
-                    position="fixed"
-                    top={0}
-                    width="100%"
-                >
-                    {playPause}
-                    {undoRedo}
-                    {loop}
-                </Toolbar>
                 {/* toolbar on desktop */}
-                <Toolbar display={["none", "block"]} mt={4} px={2} pt="12px">
+                <Toolbar display={["none", "block"]} mt={4} px={2} pt="12px" flexShrink="0">
                     <Box mb={3}>{playPause}</Box>
                     {undoRedo}
                     {loop}
@@ -832,18 +858,15 @@ function NormalLayout(props: NormalLayoutProps): React.ReactElement {
                 <Box
                     flexGrow="1"
                     flexShrink="1"
+                    minHeight="0"
                     pl={[0, 3]}
                     overflow="auto"
-                    mt={3}
-                    pt={["24px", 3]}
+                    mt={[0, 3]}
+                    pt={[2, 3]}
                     {...codepaneContainerProps}
                 >
                     {code}
                 </Box>
-                {/* horizontal rule on mobile */}
-                <Hr display={["block", "none"]} mt={4} />
-                {/* more tool buttons on mobile */}
-                <Box display={["flex", "none"]}>{sidebarToggles}</Box>
                 {/* sidebars */}
                 {sidebar}
             </Flex>
@@ -875,24 +898,35 @@ function EmbedLayout(props: EmbedLayoutProps): React.ReactElement {
     } = props;
 
     return (
-        <Flex height="100vh" flexDirection="column">
-            <Flex flexGrow="1" flexShrink="1" minHeight="0" position="relative">
-                <Toolbar display="flex" position="fixed" top={0} width="100%">
+        <Flex height="100vh" flexDirection="column" overflow="hidden">
+            <Toolbar
+                display="flex"
+                alignItems="center"
+                justifyContent="space-between"
+                width="100%"
+                flexShrink="0"
+                borderBottom="1px solid"
+                borderColor="background.light"
+            >
+                <Flex alignItems="center" flexShrink="0">
                     {playPause}
                     {loop}
+                </Flex>
+                <Flex alignItems="center" flexShrink="0">
                     {openOnXenpaper}
-                </Toolbar>
-                <Box
-                    flexGrow="1"
-                    flexShrink="1"
-                    overflow="auto"
-                    mt={3}
-                    pt="24px"
-                    {...codepaneContainerProps}
-                >
-                    {code}
-                </Box>
-            </Flex>
+                </Flex>
+            </Toolbar>
+            <Box
+                flexGrow="1"
+                flexShrink="1"
+                minHeight="0"
+                overflow="auto"
+                mt={[0, 3]}
+                pt={[2, 3]}
+                {...codepaneContainerProps}
+            >
+                {code}
+            </Box>
             {timeline}
             {htmlTitle}
         </Flex>
@@ -1286,8 +1320,11 @@ type SideButtonProps = {
 
 const SideButton = styled.button<SideButtonProps>`
     border: none;
-    display: block;
-    padding: ${(props) => (props.multiline ? ".5rem" : "1rem .5rem")};
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 3rem;
+    padding: ${(props) => (props.multiline ? ".5rem" : "0 0.5rem")};
     cursor: ${(props) => (props.disabled ? "default" : "pointer")};
     background-color: ${(props) =>
         props.active
@@ -1302,12 +1339,12 @@ const SideButton = styled.button<SideButtonProps>`
     position: relative;
     outline: none;
     font-family: ${(props) => props.theme.fonts.mono};
-    font-size: ${(props) => (props.multiline ? "0.8rem" : "0.9rem")};
+    font-size: ${(props) => (props.multiline ? "0.8rem" : "0.85rem")};
     text-align: center;
     width: auto;
     text-transform: uppercase;
     border-left: 3px solid transparent;
-    ${(props) => props.multiline && `line-height: 1em;`}
+    flex-shrink: 0;
 
     ${(props) =>
         !props.active
@@ -1317,9 +1354,12 @@ const SideButton = styled.button<SideButtonProps>`
             : ``}
 
     @media all and (min-width: ${(props) => props.theme.widths.sm}) {
+        display: block;
+        height: auto;
         padding: 0.5rem;
         font-size: ${(props) => (props.multiline ? "0.9rem" : "1.1rem")};
         width: 5rem;
+        ${(props) => props.multiline && `line-height: 1em;`}
     }
 `;
 
@@ -1331,8 +1371,10 @@ const EditOnXenpaperButton = styled.a<EditOnXenpaperButtonProps>`
     border: none;
     height: 3rem;
     line-height: 1rem;
-    display: block;
-    padding: ${(props) => (props.multiline ? ".5rem" : "1rem .5rem")};
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: ${(props) => (props.multiline ? ".5rem" : "0 0.5rem")};
     cursor: pointer;
     background-color: ${(props) => props.theme.colors.background.normal};
     color: ${(props) => props.theme.colors.highlights.comment};
@@ -1343,9 +1385,8 @@ const EditOnXenpaperButton = styled.a<EditOnXenpaperButtonProps>`
     text-align: center;
     width: auto;
     text-transform: uppercase;
-    border-left: 3px solid transparent;
-    ${(props) => props.multiline && `line-height: 1em;`}
     text-decoration: none;
+    flex-shrink: 0;
 
     &:hover,
     &:focus,
@@ -1357,6 +1398,11 @@ const EditOnXenpaperButton = styled.a<EditOnXenpaperButtonProps>`
     margin-left: auto;
 
     @media all and (min-width: ${(props) => props.theme.widths.sm}) {
+        display: block;
+        height: 3rem;
         font-size: ${(props) => (props.multiline ? "0.9rem" : "1.1rem")};
+        padding: ${(props) => (props.multiline ? ".5rem" : "1rem .5rem")};
+        border-left: 3px solid transparent;
+        ${(props) => props.multiline && `line-height: 1em;`}
     }
 `;

@@ -483,9 +483,12 @@ export const Sidebar = (props: SidebarProps): React.ReactElement => {
         <TextPanel
             width={["auto", "20rem", "30rem", wide ? "55%" : "40%"]}
             flexDirection="column"
-            flexShrink="0"
+            flexShrink={["1", "0"]}
             minHeight="0"
-            height={["66vh", "auto"]}
+            height={["50vh", "auto"]}
+            maxHeight={["55vh", "100%"]}
+            borderTop={["1px solid", "none"]}
+            borderColor="background.normal"
         >
             <Box
                 position={["absolute", "fixed"]}
@@ -493,6 +496,7 @@ export const Sidebar = (props: SidebarProps): React.ReactElement => {
                 right={0}
                 pt={3}
                 pr={3}
+                zIndex={10}
             >
                 <IconToggle
                     state="cross"
