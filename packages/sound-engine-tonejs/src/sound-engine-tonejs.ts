@@ -161,11 +161,15 @@ export class SoundEngineTonejs extends SoundEngine {
         // clear all previous notes from tone transport
         Tone.Transport.cancel();
 
-        // ensure track synths exist for all tracks in score
+        // ensure track synths exist for all tracks in score and reset volumes
+        this.synth.volume.value = 0;
         this.scoreMs.sequence.forEach((item: MoscItemMs): void => {
             if((item.type === 'NOTE_MS' || item.type === 'PARAM_MS') && item.track) {
                 this.getSynth(item.track);
             }
+        });
+        this.trackSynths.forEach(s => {
+            s.volume.value = 0;
         });
 
         // add all new notes to tone transport
@@ -219,6 +223,14 @@ export class SoundEngineTonejs extends SoundEngine {
                                 release: paramMs.value.r
                             }
                         }));
+                    }
+                    if(paramMs.value.type === 'vol') {
+                        const db = paramMs.value.vol <= 0
+                            ? -Infinity
+                            : 20 * Math.log10(paramMs.value.vol);
+                        targetSynths.forEach(s => {
+                            s.volume.value = db;
+                        });
                     }
 
                 }, paramMs.ms * 0.001);

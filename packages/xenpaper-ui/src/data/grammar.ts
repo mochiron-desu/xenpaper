@@ -211,9 +211,9 @@ export type HoldType = NodeType & {
 
 export const Hold = node/*<HoldType>*/(
     'Hold',
-    /^(([|]?-)+)/,
+    /^((([|]|\r?\n\s*)*-)+)/,
     ([value]) => ({
-        length: value.replace(/[|]+/g, '').length,
+        length: value.replace(/[|\s]+/g, '').length,
         len: value.length
     })
 );
@@ -315,11 +315,11 @@ export type EdoScaleType = NodeType & {
 
 export const EdoScale = node/*<EdoScaleType>*/(
     'EdoScale',
-    /^(\d+)ed([o\d])(\/(\d))?/i,
+    /^(\d+)ed(o|\d+)(\/(\d+))?/i,
     ([divisions, octaveSize, slash = '', denominator = '']: [string, string, string, string]) => ({
         divisions: Number(divisions),
         // TODO this math should not be in the grammar
-        octaveSize: octaveSize === 'o' ? 2 : Number(octaveSize) / Number(denominator || 1),
+        octaveSize: octaveSize.toLowerCase() === 'o' ? 2 : Number(octaveSize) / Number(denominator || 1),
         len: divisions.length + octaveSize.length + 2 + slash.length
     })
 );
@@ -647,11 +647,54 @@ export const SetTrack = node/*<SetTrackType>*/(
     })
 );
 
+// volume
+
+export type SetVolumeValueType = NodeType & {
+    volume: number;
+};
+
+export const SetVolumeValue = node/*<SetVolumeValueType>*/(
+    'SetVolumeValue',
+    /^(\d+(\.\d+)?)/,
+    ([volume]: [string]) => ({
+        volume: Number(volume),
+        len: volume.length
+    })
+);
+
+export type SetVolumeType = NodeType & {
+    volume: number;
+};
+
+export const SetVolume = node/*<SetVolumeType>*/(
+    'SetVolume',
+    All(/^((?:volume|vol|v):\s*)/, SetVolumeValue),
+    ([prefix, value]: [string, SetVolumeValueType]) => ({
+        volume: value.volume,
+        len: prefix.length + value.len
+    })
+);
+
+// primes
+
+export type SetPrimesType = NodeType & {
+    primesPitches: PitchGroupType;
+};
+
+export const SetPrimes = node/*<SetPrimesType>*/(
+    'SetPrimes',
+    All(/^(primes:\s*)/, PitchGroup),
+    ([prefix, primesPitches]: [string, PitchGroupType]) => ({
+        primesPitches,
+        len: prefix.length + sumLen(primesPitches)
+    })
+);
+
 // setters
 
-export type SetterType = SetBpmType|SetBmsType|SetSubdivisionType|SetOscType|SetEnvType|SetRulerType|SetTrackType;
+export type SetterType = SetBpmType|SetBmsType|SetSubdivisionType|SetOscType|SetEnvType|SetRulerType|SetTrackType|SetVolumeType|SetPrimesType;
 
-export const Setter = Any(SetBpm, SetBms, SetSubdivision, SetOsc, SetEnv, SetRuler, SetTrack);
+export const Setter = Any(SetBpm, SetBms, SetSubdivision, SetOsc, SetEnv, SetRuler, SetTrack, SetVolume, SetPrimes);
 
 export type SetterGroupType = NodeType & {
     setters: SetterType[];

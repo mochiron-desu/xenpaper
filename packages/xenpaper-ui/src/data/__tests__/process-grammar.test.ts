@@ -862,4 +862,41 @@ describe('grammar to ruler state', () => {
             lengthTime: 2
         });
     });
+
+    it('should not freeze on fractional sub-unity EDx like {9ed2/3} (#72)', () => {
+        const ast = parser('{9ed2/3} 0 1 9');
+        const result = processGrammar(ast);
+        expect(result.score?.sequence).toHaveLength(7);
+    });
+
+    it('should throw a clean error on {0edo} instead of freezing (#65)', () => {
+        const ast = parser('{0edo} 1');
+        expect(() => processGrammar(ast)).toThrow('EDO divisions must be between 1 and 10000, got 0');
+    });
+
+    it('should preserve correct pitch labels when creating scale subsets (#57)', () => {
+        const ast = parser('{12edo}{0 2 4 5 7 9 11} 4');
+        const result = processGrammar(ast);
+        const note = result.score?.sequence.find(i => i.type === 'NOTE_TIME') as any;
+        expect(note.label).toBe('7\\12  700.0c');
+    });
+
+    it('should emit volume param events and support retunable primes (#70, #62)', () => {
+        const ast = parser('(v:0.5; primes: 2/1 1900c) 3/2');
+        const result = processGrammar(ast);
+        const volParam = result.score?.sequence.find(
+            (i: any) => i.type === 'PARAM_TIME' && i.value?.type === 'vol'
+        ) as any;
+        expect(volParam).toEqual({
+            type: 'PARAM_TIME',
+            time: 0,
+            value: {
+                type: 'vol',
+                vol: 0.5
+            }
+        });
+        const note = result.score?.sequence.find(i => i.type === 'NOTE_TIME') as any;
+        // @ts-ignore
+        expect(note.hz).toBeAround(220 * Math.pow(2, 700 / 1200));
+    });
 });

@@ -154,7 +154,8 @@ export const SidebarInfo = (props: SidebarInfoProps): React.ReactElement => {
             <B>
                 Scales comprised of individual pitches can also set their equave
                 size using <C>{"'"}</C> after the last pitch. Defaults to{" "}
-                <C>2/1</C>
+                <C>2/1</C>. The symbols for shifting octaves (<C>{"'"}</C>,{" "}
+                <C>"</C> and <C>`</C>) shift by the current scale{"'"}s equave.
                 <Ex
                     tune={"{1/1 5/4 4/3 3/2'}\n0 1 2 3 4 5 6 7 8-"}
                     color="pitch"
@@ -309,11 +310,36 @@ export const SidebarInfo = (props: SidebarInfoProps): React.ReactElement => {
                 />
             </B>
             <B>
+                Volume can be changed using <C>(volume:...)</C>,{" "}
+                <C>(vol:...)</C>, or <C>(v:...)</C>, where <C>1</C> is the
+                default volume and <C>0</C> is silent.
+                <Ex
+                    tune={"(v:1)0 4 7 (v:0.4)0 4 7 (v:2)0 4 7"}
+                    color="pitch"
+                    onSetTune={onSetTune}
+                />
+            </B>
+            <B>
                 All oscillator and envelope options are made possible by{" "}
                 <Flink target="_blank" href="https://tonejs.github.io/">
                     tonejs
                 </Flink>
                 .
+            </B>
+            <Box pt={4}>
+                <H>Retune primes</H>
+            </Box>
+            <B>
+                You can retune how ratios like <C>5/4</C> and <C>4:5:6:7</C> are
+                tuned with <C>(primes: a b c ...)</C>, where <C>a</C> is prime
+                2, <C>b</C> is prime 3, <C>c</C> is prime 5, and so on.
+                <Ex
+                    tune={
+                        "(1/4)\n4:5:6:7 # Just\n(primes: 12 19 28 34)4:5:6:7 # 12edo\n(primes: 22\\22 35\\22 51\\22 62\\22)4:5:6:7 # 22edo"
+                    }
+                    color="pitch"
+                    onSetTune={onSetTune}
+                />
             </B>
             <Box pt={4}>
                 <H>Tracks</H>
