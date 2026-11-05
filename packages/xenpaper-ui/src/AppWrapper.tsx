@@ -106,6 +106,7 @@ const colors: Colors = {
         delimiter: '#198c8c',
         pitch: '#22cece',
         chord: '#22cece',
+        percussion: '#ffb830',
         setterGroup: '#821361',
         setter: '#d61ba4',
         scaleGroup: '#94472f',

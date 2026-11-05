@@ -15,6 +15,8 @@ import type {
     EdoScaleType,
     RatioChordScaleType,
     RatioChordPitchType,
+    PercussionType,
+    PercussionNoteType,
     HoldType,
     RestType,
     SetterGroupType,
@@ -29,6 +31,7 @@ import type {
     SetTrackType,
     SetVolumeType,
     SetPrimesType,
+    SetInstType,
     CommentType,
     DelimiterType,
 } from "./grammar";
@@ -328,6 +331,78 @@ const edoToLabels = (
 
 const ENV_VALUES = [0, 0.003, 0.006, 0.01, 0.033, 0.1, 0.33, 1, 3.3, 10];
 
+export const PERCUSSION_SOUNDS: Record<string, { hz: number; label: string }> = {
+    kick: { hz: 55, label: "kick" },
+    snare: { hz: 200, label: "snare" },
+    hihat: { hz: 8000, label: "hi-hat" },
+    openhat: { hz: 8000, label: "open-hat" },
+    clap: { hz: 1000, label: "clap" },
+    lotom: { hz: 85, label: "low-tom" },
+    midtom: { hz: 130, label: "mid-tom" },
+    hitom: { hz: 196, label: "high-tom" },
+    tom: { hz: 130, label: "tom" },
+    crash: { hz: 5000, label: "crash" },
+    ride: { hz: 3500, label: "ride" },
+    rim: { hz: 450, label: "rim" },
+    cowbell: { hz: 540, label: "cowbell" },
+    shaker: { hz: 7000, label: "shaker" },
+};
+
+export const PERCUSSION_ALIAS_MAP: Record<string, string> = {
+    bd: "kick",
+    bassdrum: "kick",
+    kick: "kick",
+    sd: "snare",
+    snaredrum: "snare",
+    snare: "snare",
+    hh: "hihat",
+    hat: "hihat",
+    closedhat: "hihat",
+    ch: "hihat",
+    hihat: "hihat",
+    oh: "openhat",
+    openhihat: "openhat",
+    openhat: "openhat",
+    cp: "clap",
+    handclap: "clap",
+    clap: "clap",
+    lt: "lotom",
+    lotom: "lotom",
+    tom1: "lotom",
+    mt: "midtom",
+    midtom: "midtom",
+    tom2: "midtom",
+    ht: "hitom",
+    hitom: "hitom",
+    tom3: "hitom",
+    tom: "tom",
+    cr: "crash",
+    cymbal: "crash",
+    crash: "crash",
+    rd: "ride",
+    ridecymbal: "ride",
+    ride: "ride",
+    rim: "rim",
+    rimshot: "rim",
+    click: "rim",
+    cb: "cowbell",
+    cowbell: "cowbell",
+    shaker: "shaker",
+};
+
+export const DRUM_DEGREE_MAP: string[] = [
+    "kick",
+    "snare",
+    "hihat",
+    "openhat",
+    "clap",
+    "lotom",
+    "hitom",
+    "crash",
+    "ride",
+    "cowbell",
+];
+
 type Context = {
     rootHz: number;
     time: number;
@@ -336,6 +411,7 @@ type Context = {
     scaleLabels: string[];
     octaveSize: number;
     primesTuning: number[];
+    instrument?: string;
     track?: string;
 };
 
@@ -349,6 +425,22 @@ const noteToMosc = (note: NoteType, context: Context): MoscNote[] => {
     times.push(arr);
     note.time = arr;
 
+    if (context.instrument === "drums" && note.pitch.value.type === "PitchDegree") {
+        const degree = (note.pitch.value as PitchDegreeType).degree;
+        const sound = DRUM_DEGREE_MAP[degree % DRUM_DEGREE_MAP.length] || "kick";
+        const def = PERCUSSION_SOUNDS[sound] ?? { hz: 55, label: sound };
+        return [
+            {
+                type: "NOTE_TIME",
+                hz: def.hz,
+                label: def.label,
+                perc: sound,
+                ...timeProps,
+                ...(context.track !== undefined ? { track: context.track } : {}),
+            },
+        ];
+    }
+
     const hz = pitchToHz(note.pitch, context);
     const label = pitchToLabel(note.pitch, context);
 
@@ -357,6 +449,32 @@ const noteToMosc = (note: NoteType, context: Context): MoscNote[] => {
             type: "NOTE_TIME",
             hz,
             label,
+            ...timeProps,
+            ...(context.track !== undefined ? { track: context.track } : {}),
+        },
+    ];
+};
+
+const percussionNoteToMosc = (
+    note: PercussionNoteType,
+    context: Context
+): MoscNote[] => {
+    const timeProps = tailToTime(note.tail, context);
+
+    const arr: [number, number] = [timeProps.time, timeProps.timeEnd];
+    times.push(arr);
+    note.time = arr;
+
+    const rawSound = note.percussion.sound.toLowerCase();
+    const sound = PERCUSSION_ALIAS_MAP[rawSound] ?? rawSound;
+    const def = PERCUSSION_SOUNDS[sound] ?? { hz: 100, label: sound };
+
+    return [
+        {
+            type: "NOTE_TIME",
+            hz: def.hz,
+            label: def.label,
+            perc: sound,
             ...timeProps,
             ...(context.track !== undefined ? { track: context.track } : {}),
         },
@@ -390,10 +508,25 @@ const chordToMosc = (
             };
         });
 
+    const percTypes: MoscNote[] = (pitches as any[])
+        .filter((p: any) => p.type === "Percussion")
+        .map((perc: any) => {
+            const rawSound = perc.sound.toLowerCase();
+            const sound = PERCUSSION_ALIAS_MAP[rawSound] ?? rawSound;
+            const def = PERCUSSION_SOUNDS[sound] ?? { hz: 100, label: sound };
+
+            return {
+                type: "NOTE_TIME" as const,
+                hz: def.hz,
+                label: def.label,
+                perc: sound,
+                ...timeProps,
+                ...(context.track !== undefined ? { track: context.track } : {}),
+            };
+        });
+
     const firstRatioPitch = pitches.find(
-        (pitch: PitchType | RatioChordPitchType | DelimiterType) => {
-            return pitch.type === "RatioChordPitch";
-        }
+        (pitch: any) => pitch.type === "RatioChordPitch"
     ) as RatioChordPitchType | undefined;
 
     const firstDenominator = (firstRatioPitch as RatioChordPitchType)?.pitch;
@@ -445,7 +578,7 @@ const chordToMosc = (
         }
     });
 
-    return pitchTypes.concat(ratioPitchTypes);
+    return pitchTypes.concat(ratioPitchTypes).concat(percTypes);
 };
 
 const setScale = (setScale: SetScaleType, context: Context): void => {
@@ -619,6 +752,9 @@ const setterToMosc = (setter: SetterType, context: Context): MoscItem[] => {
 
     if (type === "SetOsc") {
         const { osc } = setter as SetOscType;
+        if (osc === "drums" || osc === "percussion") {
+            context.instrument = "drums";
+        }
         return [
             {
                 type: "PARAM_TIME",
@@ -626,6 +762,22 @@ const setterToMosc = (setter: SetterType, context: Context): MoscItem[] => {
                 value: {
                     type: "osc",
                     osc,
+                },
+                ...(context.track !== undefined ? { track: context.track } : {}),
+            },
+        ];
+    }
+
+    if (type === "SetInst") {
+        const { inst } = setter as SetInstType;
+        context.instrument = inst.toLowerCase();
+        return [
+            {
+                type: "PARAM_TIME",
+                time: context.time,
+                value: {
+                    type: "inst",
+                    inst: inst.toLowerCase(),
                 },
                 ...(context.track !== undefined ? { track: context.track } : {}),
             },
@@ -827,6 +979,7 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
             scaleLabels: [...preambleContext.scaleLabels],
             octaveSize: preambleContext.octaveSize,
             primesTuning: [...preambleContext.primesTuning],
+            instrument: preambleContext.instrument,
             track: trackId,
         };
         tracks.set(trackId, created);
@@ -899,7 +1052,8 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
             type === "Note" ||
             type === "Rest" ||
             type === "Chord" ||
-            type === "RatioChord"
+            type === "RatioChord" ||
+            type === "PercussionNote"
         ) {
             flushChapter();
         }
@@ -912,6 +1066,11 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
         if (type === "SetRoot") {
             const { pitch } = item as SetRootType;
             context.rootHz = pitchToHz(pitch, context);
+            return;
+        }
+
+        if (type === "PercussionNote") {
+            moscItems.push(...percussionNoteToMosc(item as PercussionNoteType, context));
             return;
         }
 

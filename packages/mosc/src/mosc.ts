@@ -9,6 +9,7 @@ export type MoscNote = {
     hz: number;
     label: string;
     track?: string;
+    perc?: string;
 };
 
 export type MoscNoteMs = {
@@ -18,6 +19,7 @@ export type MoscNoteMs = {
     hz: number;
     label: string;
     track?: string;
+    perc?: string;
 };
 
 export type MoscParam = {
@@ -180,7 +182,8 @@ export const scoreToMs = (score: MoscScore): MoscScoreMs => {
                     label: note.label,
                     ms: thisTimeToMs(note.time),
                     msEnd: thisTimeToMs(note.timeEnd),
-                    ...(note.track !== undefined ? {track: note.track} : {})
+                    ...(note.track !== undefined ? {track: note.track} : {}),
+                    ...(note.perc !== undefined ? {perc: note.perc} : {})
                 };
             }
             if(item.type === 'PARAM_TIME') {

@@ -1912,5 +1912,139 @@ describe('grammar', () => {
             expect(() => strip(parser(':2'))).toThrow('Unexpected token at 1:1. Remainder: :2');
             expect(() => strip(parser('foo:2'))).toThrow('Unexpected token at 1:1. Remainder: foo:2');
         });
+
+        describe('percussion', () => {
+            it('should parse single percussion note', () => {
+                expect(strip(parser('kick')).sequence.items).toEqual([
+                    {
+                        type: 'PercussionNote',
+                        percussion: {
+                            type: 'Percussion',
+                            sound: 'kick',
+                            alias: 'kick',
+                            len: 4
+                        },
+                        tail: undefined,
+                        len: 4
+                    }
+                ]);
+            });
+
+            it('should parse percussion aliases and holds', () => {
+                expect(strip(parser('bd-- sd- hh oh cp tom1 tom2 tom3 crash ride rim cowbell shaker')).sequence.items.filter((i: any) => i.type !== 'Whitespace')).toEqual([
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'bd', alias: 'bd', len: 2 },
+                        tail: { type: 'Hold', length: 2, len: 2 },
+                        len: 4
+                    },
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'sd', alias: 'sd', len: 2 },
+                        tail: { type: 'Hold', length: 1, len: 1 },
+                        len: 3
+                    },
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'hh', alias: 'hh', len: 2 },
+                        tail: undefined,
+                        len: 2
+                    },
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'oh', alias: 'oh', len: 2 },
+                        tail: undefined,
+                        len: 2
+                    },
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'cp', alias: 'cp', len: 2 },
+                        tail: undefined,
+                        len: 2
+                    },
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'tom1', alias: 'tom1', len: 4 },
+                        tail: undefined,
+                        len: 4
+                    },
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'tom2', alias: 'tom2', len: 4 },
+                        tail: undefined,
+                        len: 4
+                    },
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'tom3', alias: 'tom3', len: 4 },
+                        tail: undefined,
+                        len: 4
+                    },
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'crash', alias: 'crash', len: 5 },
+                        tail: undefined,
+                        len: 5
+                    },
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'ride', alias: 'ride', len: 4 },
+                        tail: undefined,
+                        len: 4
+                    },
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'rim', alias: 'rim', len: 3 },
+                        tail: undefined,
+                        len: 3
+                    },
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'cowbell', alias: 'cowbell', len: 7 },
+                        tail: undefined,
+                        len: 7
+                    },
+                    {
+                        type: 'PercussionNote',
+                        percussion: { type: 'Percussion', sound: 'shaker', alias: 'shaker', len: 6 },
+                        tail: undefined,
+                        len: 6
+                    }
+                ]);
+            });
+
+            it('should parse percussion in chords', () => {
+                const parsed = strip(parser('[kick, hh]--'));
+                expect(parsed.sequence.items).toEqual([
+                    {
+                        type: 'Chord',
+                        pitches: [
+                            { type: 'Percussion', sound: 'kick', alias: 'kick', len: 4 },
+                            { type: 'Whitespace', len: 2 },
+                            { type: 'Percussion', sound: 'hh', alias: 'hh', len: 2 }
+                        ],
+                        tail: { type: 'Hold', length: 2, len: 2 },
+                        len: 12
+                    }
+                ]);
+            });
+
+            it('should parse inst / instrument setter', () => {
+                const parsed = strip(parser('(inst:drums)'));
+                expect(parsed.sequence.items).toEqual([
+                    {
+                        type: 'SetterGroup',
+                        setters: [
+                            {
+                                type: 'SetInst',
+                                inst: 'drums',
+                                len: 10
+                            }
+                        ],
+                        len: 12
+                    }
+                ]);
+            });
+        });
     });
 });

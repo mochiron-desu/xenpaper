@@ -919,4 +919,197 @@ describe('grammar to ruler state', () => {
             }
         ]);
     });
+
+    describe('percussion support', () => {
+        it('should process percussion notes with timing, hz, and perc properties', () => {
+            const ast = parser('kick . snare- hat oh clap');
+            const result = processGrammar(ast);
+            const notes = result.score?.sequence.filter(i => i.type === 'NOTE_TIME') as any[];
+
+            expect(notes).toEqual([
+                {
+                    type: 'NOTE_TIME',
+                    time: 0,
+                    timeEnd: 0.5,
+                    hz: 55,
+                    label: 'kick',
+                    perc: 'kick'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 1,
+                    timeEnd: 2,
+                    hz: 200,
+                    label: 'snare',
+                    perc: 'snare'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 2,
+                    timeEnd: 2.5,
+                    hz: 8000,
+                    label: 'hi-hat',
+                    perc: 'hihat'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 2.5,
+                    timeEnd: 3,
+                    hz: 8000,
+                    label: 'open-hat',
+                    perc: 'openhat'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 3,
+                    timeEnd: 3.5,
+                    hz: 1000,
+                    label: 'clap',
+                    perc: 'clap'
+                }
+            ]);
+        });
+
+        it('should process drum aliases and all percussion types', () => {
+            const ast = parser('bd sd hh oh cp cr rd cb rim shaker');
+            const result = processGrammar(ast);
+            const notes = result.score?.sequence.filter(i => i.type === 'NOTE_TIME') as any[];
+
+            expect(notes.map(n => ({ label: n.label, perc: n.perc }))).toEqual([
+                { label: 'kick', perc: 'kick' },
+                { label: 'snare', perc: 'snare' },
+                { label: 'hi-hat', perc: 'hihat' },
+                { label: 'open-hat', perc: 'openhat' },
+                { label: 'clap', perc: 'clap' },
+                { label: 'crash', perc: 'crash' },
+                { label: 'ride', perc: 'ride' },
+                { label: 'cowbell', perc: 'cowbell' },
+                { label: 'rim', perc: 'rim' },
+                { label: 'shaker', perc: 'shaker' }
+            ]);
+        });
+
+        it('should process percussion in chords', () => {
+            const ast = parser('[kick, hh] . [snare, hh]');
+            const result = processGrammar(ast);
+            const notes = result.score?.sequence.filter(i => i.type === 'NOTE_TIME') as any[];
+
+            expect(notes).toEqual([
+                {
+                    type: 'NOTE_TIME',
+                    time: 0,
+                    timeEnd: 0.5,
+                    hz: 55,
+                    label: 'kick',
+                    perc: 'kick'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 0,
+                    timeEnd: 0.5,
+                    hz: 8000,
+                    label: 'hi-hat',
+                    perc: 'hihat'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 1,
+                    timeEnd: 1.5,
+                    hz: 200,
+                    label: 'snare',
+                    perc: 'snare'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 1,
+                    timeEnd: 1.5,
+                    hz: 8000,
+                    label: 'hi-hat',
+                    perc: 'hihat'
+                }
+            ]);
+        });
+
+        it('should map scale degrees to drums when inst:drums is set on track', () => {
+            const ast = parser('(track:drums; inst:drums) 0 . 1 . 2 3');
+            const result = processGrammar(ast);
+            const notes = result.score?.sequence.filter(i => i.type === 'NOTE_TIME') as any[];
+
+            expect(notes).toEqual([
+                {
+                    type: 'NOTE_TIME',
+                    time: 0,
+                    timeEnd: 0.5,
+                    hz: 55,
+                    label: 'kick',
+                    perc: 'kick',
+                    track: 'drums'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 1,
+                    timeEnd: 1.5,
+                    hz: 200,
+                    label: 'snare',
+                    perc: 'snare',
+                    track: 'drums'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 2,
+                    timeEnd: 2.5,
+                    hz: 8000,
+                    label: 'hi-hat',
+                    perc: 'hihat',
+                    track: 'drums'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 2.5,
+                    timeEnd: 3,
+                    hz: 8000,
+                    label: 'open-hat',
+                    perc: 'openhat',
+                    track: 'drums'
+                }
+            ]);
+        });
+
+        it('should successfully parse and process complex multi-track score with tom chords', () => {
+            const scoreText = `
+(bpm:126; div:4)
+{19edo}{r220Hz}
+
+# --- Drum Track ---
+(track:drums)
+(v:0.9)
+[kick,hh] . hh . [snare,hh] . hh . |
+[kick,hh] kick hh . [snare,hh] . [kick,oh]--- |
+[kick,hh] . hh . [snare,hh] . hh . |
+[kick,hh] kick hh . snare cp [lotom,hitom] [crash]------- |
+
+# --- Bass Track ---
+(track:bass; osc:fatsawtooth; env:0243; v:0.8)
+\`0--- \`0--- \`0--- \`3--- | \`6--- \`6--- \`8--- \`8---|
+
+# --- Microtonal Lead ---
+(track:lead; osc:fmsine; env:1645; v:1)
+0--- 6--- 11--- 14---|11- 8- 6- 3- 0-------|
+            `;
+            const ast = parser(scoreText);
+            const result = processGrammar(ast);
+            expect(result.score).toBeDefined();
+            const drumNotes = result.score?.sequence.filter(i => i.type === 'NOTE_TIME' && (i as any).track === 'drums') as any[];
+            expect(drumNotes.length).toBeGreaterThan(0);
+
+            // Find the lotom and hitom chord
+            const lotomHit = drumNotes.find(n => n.perc === 'lotom');
+            const hitomHit = drumNotes.find(n => n.perc === 'hitom');
+            expect(lotomHit).toBeDefined();
+            expect(hitomHit).toBeDefined();
+            expect(lotomHit.time).toEqual(hitomHit.time);
+            expect(lotomHit.hz).toBe(85);
+            expect(hitomHit.hz).toBe(196);
+        });
+    });
 });

@@ -44,6 +44,343 @@ export const OSC_TYPES = flatMap(OSC_TYPES_EXPANDED, type => [
 
 const OSC_TYPES_SET = new Set(OSC_TYPES);
 
+class VoicePool<T> {
+    private voices: T[] = [];
+    private lastStartTimes: number[] = [];
+    private createVoice: () => T;
+
+    constructor(createVoice: () => T) {
+        this.createVoice = createVoice;
+    }
+
+    getVoice(time: number): T {
+        for(let i = 0; i < this.voices.length; i++) {
+            if(this.lastStartTimes[i] < time) {
+                this.lastStartTimes[i] = time;
+                return this.voices[i];
+            }
+        }
+        const newVoice = this.createVoice();
+        this.voices.push(newVoice);
+        this.lastStartTimes.push(time);
+        return newVoice;
+    }
+
+    releaseAll(): void {
+        this.voices.forEach((v: any) => {
+            if(!v) return;
+            try {
+                if(typeof v.releaseAll === 'function') v.releaseAll();
+                if(typeof v.triggerRelease === 'function') v.triggerRelease();
+                if(v.membrane && typeof v.membrane.triggerRelease === 'function') v.membrane.triggerRelease();
+                if(v.noise && typeof v.noise.triggerRelease === 'function') v.noise.triggerRelease();
+            } catch {
+                // ignore
+            }
+        });
+    }
+
+    resetTimeTracking(): void {
+        for(let i = 0; i < this.lastStartTimes.length; i++) {
+            this.lastStartTimes[i] = -1;
+        }
+    }
+}
+
+export class TonejsPercussionKit {
+    output: Tone.Volume;
+    private pools = new Map<string, VoicePool<any>>();
+
+    constructor() {
+        this.output = new Tone.Volume(0).chain(Tone.Destination);
+    }
+
+    setVolume(db: number): void {
+        this.output.volume.value = db;
+    }
+
+    private getPool<T>(name: string, createVoice: () => T): VoicePool<T> {
+        let pool = this.pools.get(name);
+        if(!pool) {
+            pool = new VoicePool(createVoice);
+            this.pools.set(name, pool);
+        }
+        return pool;
+    }
+
+    private getKickPool(): VoicePool<Tone.MembraneSynth> {
+        return this.getPool('kick', () => {
+            const synth = new Tone.MembraneSynth({
+                pitchDecay: 0.05,
+                octaves: 6,
+                oscillator: { type: 'sine' },
+                envelope: {
+                    attack: 0.001,
+                    decay: 0.38,
+                    sustain: 0.01,
+                    release: 0.38
+                }
+            }).chain(this.output);
+            synth.volume.value = -3;
+            return synth;
+        });
+    }
+
+    private getSnarePool(): VoicePool<{ membrane: Tone.MembraneSynth; noise: Tone.NoiseSynth }> {
+        return this.getPool('snare', () => {
+            const membrane = new Tone.MembraneSynth({
+                pitchDecay: 0.01,
+                octaves: 2,
+                oscillator: { type: 'triangle' },
+                envelope: { attack: 0.001, decay: 0.14, sustain: 0, release: 0.14 }
+            }).chain(this.output);
+            membrane.volume.value = -8;
+
+            const noise = new Tone.NoiseSynth({
+                noise: { type: 'pink' },
+                envelope: { attack: 0.001, decay: 0.18, sustain: 0 }
+            }).chain(this.output);
+            noise.volume.value = -11;
+
+            return { membrane, noise };
+        });
+    }
+
+    private getHihatPool(): VoicePool<Tone.MetalSynth> {
+        return this.getPool('hihat', () => {
+            const synth = new Tone.MetalSynth({
+                envelope: { attack: 0.001, decay: 0.06, release: 0.05 },
+                harmonicity: 5.1,
+                modulationIndex: 32,
+                resonance: 4000,
+                octaves: 1.5
+            }).chain(this.output);
+            synth.frequency.value = 200;
+            synth.volume.value = -16;
+            return synth;
+        });
+    }
+
+    private getOpenhatPool(): VoicePool<Tone.MetalSynth> {
+        return this.getPool('openhat', () => {
+            const synth = new Tone.MetalSynth({
+                envelope: { attack: 0.001, decay: 0.35, release: 0.35 },
+                harmonicity: 5.1,
+                modulationIndex: 32,
+                resonance: 4000,
+                octaves: 1.5
+            }).chain(this.output);
+            synth.frequency.value = 200;
+            synth.volume.value = -16;
+            return synth;
+        });
+    }
+
+    private getClapPool(): VoicePool<Tone.NoiseSynth> {
+        return this.getPool('clap', () => {
+            const synth = new Tone.NoiseSynth({
+                noise: { type: 'pink' },
+                envelope: { attack: 0.005, decay: 0.22, sustain: 0 }
+            }).chain(this.output);
+            synth.volume.value = -10;
+            return synth;
+        });
+    }
+
+    private getLoTomPool(): VoicePool<Tone.MembraneSynth> {
+        return this.getPool('lotom', () => {
+            const synth = new Tone.MembraneSynth({
+                pitchDecay: 0.05,
+                octaves: 4,
+                oscillator: { type: 'sine' },
+                envelope: { attack: 0.001, decay: 0.35, sustain: 0.01, release: 0.35 }
+            }).chain(this.output);
+            synth.volume.value = -5;
+            return synth;
+        });
+    }
+
+    private getMidTomPool(): VoicePool<Tone.MembraneSynth> {
+        return this.getPool('midtom', () => {
+            const synth = new Tone.MembraneSynth({
+                pitchDecay: 0.05,
+                octaves: 4,
+                oscillator: { type: 'sine' },
+                envelope: { attack: 0.001, decay: 0.35, sustain: 0.01, release: 0.35 }
+            }).chain(this.output);
+            synth.volume.value = -5;
+            return synth;
+        });
+    }
+
+    private getHiTomPool(): VoicePool<Tone.MembraneSynth> {
+        return this.getPool('hitom', () => {
+            const synth = new Tone.MembraneSynth({
+                pitchDecay: 0.05,
+                octaves: 4,
+                oscillator: { type: 'sine' },
+                envelope: { attack: 0.001, decay: 0.35, sustain: 0.01, release: 0.35 }
+            }).chain(this.output);
+            synth.volume.value = -5;
+            return synth;
+        });
+    }
+
+    private getCrashPool(): VoicePool<Tone.MetalSynth> {
+        return this.getPool('crash', () => {
+            const synth = new Tone.MetalSynth({
+                envelope: { attack: 0.002, decay: 1.2, release: 1.2 },
+                harmonicity: 5.1,
+                modulationIndex: 40,
+                resonance: 5000,
+                octaves: 2
+            }).chain(this.output);
+            synth.frequency.value = 260;
+            synth.volume.value = -14;
+            return synth;
+        });
+    }
+
+    private getRidePool(): VoicePool<Tone.MetalSynth> {
+        return this.getPool('ride', () => {
+            const synth = new Tone.MetalSynth({
+                envelope: { attack: 0.001, decay: 0.7, release: 0.7 },
+                harmonicity: 4.2,
+                modulationIndex: 20,
+                resonance: 3000,
+                octaves: 1.2
+            }).chain(this.output);
+            synth.frequency.value = 450;
+            synth.volume.value = -16;
+            return synth;
+        });
+    }
+
+    private getRimPool(): VoicePool<Tone.MembraneSynth> {
+        return this.getPool('rim', () => {
+            const synth = new Tone.MembraneSynth({
+                pitchDecay: 0.01,
+                octaves: 1,
+                oscillator: { type: 'triangle' },
+                envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.04 }
+            }).chain(this.output);
+            synth.volume.value = -6;
+            return synth;
+        });
+    }
+
+    private getCowbellPool(): VoicePool<Tone.MetalSynth> {
+        return this.getPool('cowbell', () => {
+            const synth = new Tone.MetalSynth({
+                envelope: { attack: 0.001, decay: 0.22, release: 0.22 },
+                harmonicity: 1.48,
+                modulationIndex: 8,
+                resonance: 2000,
+                octaves: 0.5
+            }).chain(this.output);
+            synth.frequency.value = 540;
+            synth.volume.value = -13;
+            return synth;
+        });
+    }
+
+    private getShakerPool(): VoicePool<Tone.NoiseSynth> {
+        return this.getPool('shaker', () => {
+            const synth = new Tone.NoiseSynth({
+                noise: { type: 'white' },
+                envelope: { attack: 0.012, decay: 0.07, sustain: 0 }
+            }).chain(this.output);
+            synth.volume.value = -17;
+            return synth;
+        });
+    }
+
+    trigger(sound: string, durationSec: number, time: number, hz?: number): void {
+        switch(sound) {
+            case 'kick': {
+                const synth = this.getKickPool().getVoice(time);
+                synth.triggerAttackRelease(hz || 55, Math.min(durationSec, 0.4), time);
+                break;
+            }
+            case 'snare': {
+                const snare = this.getSnarePool().getVoice(time);
+                snare.membrane.triggerAttackRelease(hz || 185, 0.12, time);
+                snare.noise.triggerAttackRelease(0.16, time);
+                break;
+            }
+            case 'hihat': {
+                const synth = this.getHihatPool().getVoice(time);
+                synth.triggerAttackRelease(hz || 200, 0.05, time);
+                break;
+            }
+            case 'openhat': {
+                const synth = this.getOpenhatPool().getVoice(time);
+                synth.triggerAttackRelease(hz || 200, Math.min(Math.max(durationSec, 0.25), 0.5), time);
+                break;
+            }
+            case 'clap': {
+                const synth = this.getClapPool().getVoice(time);
+                synth.triggerAttackRelease(0.18, time);
+                break;
+            }
+            case 'lotom': {
+                const synth = this.getLoTomPool().getVoice(time);
+                synth.triggerAttackRelease(hz || 85, Math.min(durationSec, 0.35), time);
+                break;
+            }
+            case 'midtom':
+            case 'tom': {
+                const synth = this.getMidTomPool().getVoice(time);
+                synth.triggerAttackRelease(hz || 130, Math.min(durationSec, 0.35), time);
+                break;
+            }
+            case 'hitom': {
+                const synth = this.getHiTomPool().getVoice(time);
+                synth.triggerAttackRelease(hz || 196, Math.min(durationSec, 0.35), time);
+                break;
+            }
+            case 'crash': {
+                const synth = this.getCrashPool().getVoice(time);
+                synth.triggerAttackRelease(hz || 260, Math.min(Math.max(durationSec, 0.8), 1.5), time);
+                break;
+            }
+            case 'ride': {
+                const synth = this.getRidePool().getVoice(time);
+                synth.triggerAttackRelease(hz || 450, Math.min(Math.max(durationSec, 0.5), 0.9), time);
+                break;
+            }
+            case 'rim': {
+                const synth = this.getRimPool().getVoice(time);
+                synth.triggerAttackRelease(hz || 450, 0.04, time);
+                break;
+            }
+            case 'cowbell': {
+                const synth = this.getCowbellPool().getVoice(time);
+                synth.triggerAttackRelease(hz || 540, 0.22, time);
+                break;
+            }
+            case 'shaker': {
+                const synth = this.getShakerPool().getVoice(time);
+                synth.triggerAttackRelease(0.07, time);
+                break;
+            }
+            default: {
+                const synth = this.getKickPool().getVoice(time);
+                synth.triggerAttackRelease(hz || 55, Math.min(durationSec, 0.4), time);
+                break;
+            }
+        }
+    }
+
+    releaseAll(): void {
+        this.pools.forEach(pool => pool.releaseAll());
+    }
+
+    resetTimeTracking(): void {
+        this.pools.forEach(pool => pool.resetTimeTracking());
+    }
+}
+
 export class SoundEngineTonejs extends SoundEngine {
 
     _started = false;
@@ -68,6 +405,7 @@ export class SoundEngineTonejs extends SoundEngine {
     }).chain(Tone.Destination);
 
     trackSynths = new Map<string, Tone.PolySynth>();
+    percussionKits = new Map<string, TonejsPercussionKit>();
 
     getSynth(track?: string): Tone.PolySynth {
         if(!track) {
@@ -90,6 +428,18 @@ export class SoundEngineTonejs extends SoundEngine {
             this.trackSynths.set(track, synth);
         }
         return synth;
+    }
+
+    getPercussionKit(track?: string): TonejsPercussionKit {
+        const key = track ?? '';
+        let kit = this.percussionKits.get(key);
+        if(!kit) {
+            kit = new TonejsPercussionKit();
+            this.percussionKits.set(key, kit);
+            const db = this._mutedTracks.has(key) ? -Infinity : (this._trackBaseDb.get(key) ?? 0);
+            kit.setVolume(db);
+        }
+        return kit;
     }
 
     playing(): boolean {
@@ -154,6 +504,7 @@ export class SoundEngineTonejs extends SoundEngine {
     _releaseAll(): void {
         this.synth.releaseAll();
         this.trackSynths.forEach(s => s.releaseAll());
+        this.percussionKits.forEach(kit => kit.releaseAll());
         this._activeNoteEvents.forEach(noteMs => {
             this._triggerEvent('note', noteMs, false);
         });
@@ -203,9 +554,17 @@ export class SoundEngineTonejs extends SoundEngine {
     _syncTrackVolume(track: string): void {
         const s = this.getSynth(track || undefined);
         const muted = this._mutedTracks.has(track);
-        s.volume.value = muted ? -Infinity : (this._trackBaseDb.get(track) ?? 0);
+        const db = muted ? -Infinity : (this._trackBaseDb.get(track) ?? 0);
+        s.volume.value = db;
         if(muted) {
             s.releaseAll();
+        }
+        const kit = this.percussionKits.get(track);
+        if(kit) {
+            kit.setVolume(db);
+            if(muted) {
+                kit.releaseAll();
+            }
         }
     }
 
@@ -213,6 +572,7 @@ export class SoundEngineTonejs extends SoundEngine {
         this._mutedTracks = new Set(tracks);
         this._syncTrackVolume('');
         this.trackSynths.forEach((_, t) => this._syncTrackVolume(t));
+        this.percussionKits.forEach((_, t) => this._syncTrackVolume(t));
         this._activeNoteEvents.forEach(item => {
             const noteMs = item as MoscNoteMs;
             if(this._mutedTracks.has(noteMs.track ?? '')) {
@@ -274,11 +634,18 @@ export class SoundEngineTonejs extends SoundEngine {
         this.scoreMs.sequence.forEach((item: MoscItemMs): void => {
             if((item.type === 'NOTE_MS' || item.type === 'PARAM_MS') && item.track) {
                 this.getSynth(item.track);
+                if(item.type === 'NOTE_MS' && (item as MoscNoteMs).perc) {
+                    this.getPercussionKit(item.track);
+                }
             }
         });
         this._syncTrackVolume('');
         this.trackSynths.forEach((_, t) => {
             this._syncTrackVolume(t);
+        });
+        this.percussionKits.forEach((kit, t) => {
+            this._syncTrackVolume(t);
+            kit.resetTimeTracking();
         });
 
         const eventsBySec = new Map<number, Array<(time: number) => void>>();
@@ -295,15 +662,20 @@ export class SoundEngineTonejs extends SoundEngine {
         this.scoreMs.sequence.forEach((item: MoscItemMs): void => {
             if(item.type === 'NOTE_MS') {
                 const noteMs = item as MoscNoteMs;
-                const targetSynth = this.getSynth(noteMs.track);
                 const durationSec = (noteMs.msEnd - noteMs.ms) * 0.001;
                 addEvent(noteMs.ms * 0.001 + 0.1, (time: number) => {
                     if(this._mutedTracks.has(noteMs.track ?? '')) return;
-                    targetSynth.triggerAttackRelease(
-                        noteMs.hz,
-                        durationSec,
-                        time
-                    );
+                    if(noteMs.perc) {
+                        const kit = this.getPercussionKit(noteMs.track);
+                        kit.trigger(noteMs.perc, durationSec, time, noteMs.hz);
+                    } else {
+                        const targetSynth = this.getSynth(noteMs.track);
+                        targetSynth.triggerAttackRelease(
+                            noteMs.hz,
+                            durationSec,
+                            time
+                        );
+                    }
                     this._activeNoteEvents.add(noteMs);
                     this._triggerEvent('note', noteMs, true);
                 });

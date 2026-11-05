@@ -278,4 +278,34 @@ describe('scoreToMs', () => {
             lengthMs: 3500
         });
     });
+
+    it('should preserve perc property on notes', () => {
+        expect(scoreToMs({
+            sequence: [
+                {
+                    type: 'NOTE_TIME',
+                    time: 0,
+                    timeEnd: 1,
+                    hz: 55,
+                    label: 'kick',
+                    perc: 'kick',
+                    track: 'drums'
+                }
+            ],
+            lengthTime: 1
+        })).toEqual({
+            sequence: [
+                {
+                    type: 'NOTE_MS',
+                    ms: 0,
+                    msEnd: 1000,
+                    hz: 55,
+                    label: 'kick',
+                    perc: 'kick',
+                    track: 'drums'
+                }
+            ],
+            lengthMs: 1000
+        });
+    });
 });

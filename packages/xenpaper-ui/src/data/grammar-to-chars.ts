@@ -3,6 +3,7 @@ import type {XenpaperAST} from './grammar';
 export type HighlightColor = 'delimiter'
     |'pitch'
     |'chord'
+    |'percussion'
     |'scaleGroup'
     |'scale'
     |'setterGroup'
@@ -29,9 +30,14 @@ const colorMap = new Map<string,HighlightColor>([
     // ['PitchHz','pitch'],
     // ['OctaveModifier','pitch'],
     ['Pitch','pitch'],
+    ['Percussion','percussion'],
+    ['PercussionNote','percussion'],
+    ['PercussionNote.Percussion','percussion'],
+    ['PercussionNote.Hold','percussion'],
     ['RatioChordPitch','pitch'],
     ['Chord','chord'],
     ['Chord.Whitespace','pitch'],
+    ['Chord.Percussion','percussion'],
     // ['RatioChord'],
     ['Hold','pitch'],
     ['Rest','delimiter'],
@@ -60,6 +66,7 @@ const colorMap = new Map<string,HighlightColor>([
     ['SetVolume','setter'],
     ['SetPrimes','setter'],
     ['SetPrimes.Pitch','setter'],
+    ['SetInst','setter'],
     ['SetterGroup','setterGroup'],
     ['SetterGroup.Semicolon','setterGroup'],
     ['Comment','comment']

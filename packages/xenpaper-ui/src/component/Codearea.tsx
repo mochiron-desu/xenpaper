@@ -217,6 +217,7 @@ const Highlight = styled.pre<HighlightProps>`
     .char.hl-delimiter { color: ${props => props.theme.colors.highlights.delimiter}; }
     .char.hl-pitch { color: ${props => props.theme.colors.highlights.pitch}; }
     .char.hl-chord { color: ${props => props.theme.colors.highlights.chord}; }
+    .char.hl-percussion { color: ${props => props.theme.colors.highlights.percussion}; }
     .char.hl-setterGroup { color: ${props => props.theme.colors.highlights.setterGroup}; }
     .char.hl-setter { color: ${props => props.theme.colors.highlights.setter}; }
     .char.hl-scaleGroup { color: ${props => props.theme.colors.highlights.scaleGroup}; }

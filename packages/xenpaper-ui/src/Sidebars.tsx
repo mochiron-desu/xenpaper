@@ -360,6 +360,48 @@ export const SidebarInfo = (props: SidebarInfoProps): React.ReactElement => {
                 />
             </B>
             <Box pt={4}>
+                <H>Percussion</H>
+            </Box>
+            <B>
+                Add percussion anywhere using drum names or shorthand aliases.
+                <br />- <C>kick</C> / <C>bd</C> (bass drum)
+                <br />- <C>snare</C> / <C>sd</C> (snare)
+                <br />- <C>hat</C> / <C>hh</C> (closed hi-hat)
+                <br />- <C>openhat</C> / <C>oh</C> (open hi-hat)
+                <br />- <C>clap</C> / <C>cp</C> (handclap)
+                <br />- <C>tom</C> / <C>lotom</C> / <C>hitom</C> (toms)
+                <br />- <C>crash</C> / <C>cr</C> (crash cymbal)
+                <br />- <C>ride</C> / <C>rd</C> (ride cymbal)
+                <br />- <C>rim</C> (rimshot)
+                <br />- <C>cowbell</C> / <C>cb</C> (cowbell)
+                <br />- <C>shaker</C> (shaker)
+                <Ex
+                    tune={"kick . hat . snare . hat .\nkick kick hat . snare . openhat ."}
+                    color="percussion"
+                    onSetTune={onSetTune}
+                />
+            </B>
+            <B>
+                Percussion can be played together in chords like <C>[kick,hh]</C>, held with hyphens <C>kick---</C>, and layered with melodic tracks.
+                <Ex
+                    tune={
+                        "(track:drums)\n[kick,hh] . hh . [snare,hh] . hh .\n[kick,hh] kick hh . [snare,oh] . . .\n(track:lead)\n0 2 4 5 7 9 11 12---"
+                    }
+                    color="percussion"
+                    onSetTune={onSetTune}
+                />
+            </B>
+            <B>
+                You can also turn a track into a drum machine using <C>(inst:drums)</C>, where scale degrees <C>0</C>–<C>9</C> map to drums (0=kick, 1=snare, 2=hat, 3=openhat, 4=clap, 5=lotom, 6=hitom, 7=crash, 8=ride, 9=cowbell).
+                <Ex
+                    tune={
+                        "(track:drums; inst:drums)\n0 . 2 . 1 . 2 . 0 0 2 . 1 . 3 ."
+                    }
+                    color="percussion"
+                    onSetTune={onSetTune}
+                />
+            </B>
+            <Box pt={4}>
                 <H>Ruler</H>
             </Box>
             <B>

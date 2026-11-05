@@ -251,6 +251,40 @@ export const Note = node/*<NoteType>*/(
 );
 
 //
+// percussion
+//
+
+export type PercussionType = NodeType & {
+    sound: string;
+    alias: string;
+};
+
+export const Percussion = node/*<PercussionType>*/(
+    'Percussion',
+    /^(openhihat|openhat|closedhat|bassdrum|snaredrum|ridecymbal|rimshot|handclap|cowbell|shaker|cymbal|hihat|lotom|midtom|hitom|crash|snare|click|kick|clap|ride|hat|tom[1-3]?|rim|oh|hh|ch|bd|sd|cp|cr|rd|cb|lt|mt|ht)\b/i,
+    ([text]: [string]) => ({
+        sound: text.toLowerCase(),
+        alias: text.toLowerCase(),
+        len: text.length
+    })
+);
+
+export type PercussionNoteType = NodeType & {
+    percussion: PercussionType;
+    tail?: TailType;
+};
+
+export const PercussionNote = node/*<PercussionNoteType>*/(
+    'PercussionNote',
+    All(Percussion, Optional(Tail)),
+    ([percussion, tail]: [PercussionType, TailType?]) => ({
+        percussion,
+        tail,
+        len: percussion.len + (tail ? tail.len : 0)
+    })
+);
+
+//
 // chords
 //
 
@@ -274,14 +308,23 @@ export const RatioChordPitchGroup = Node(
     (elements: RatioChordPitchGroupType) => elements
 );
 
+export const ChordItem = Any(Percussion, Pitch);
+
+export type ChordItemGroupType = Array<PercussionType|PitchType|DelimiterType>;
+
+export const ChordItemGroup = Node(
+    All(ChordItem, Star(All(Whitespace, ChordItem))),
+    (elements: unknown) => elements
+);
+
 export type ChordType = NodeType & {
-    pitches: Array<RatioChordPitchType|PitchType|DelimiterType>;
+    pitches: Array<RatioChordPitchType|PitchType|PercussionType|DelimiterType>;
     tail?: TailType;
 };
 
 export const Chord = node/*<ChordType>*/(
     'Chord',
-    All('[', Any(RatioChordPitchGroup, PitchGroup), ']', Optional(Tail)),
+    All('[', Any(RatioChordPitchGroup, ChordItemGroup), ']', Optional(Tail)),
     ([pitches, tail]) => ({
         pitches,
         tail,
@@ -690,11 +733,39 @@ export const SetPrimes = node/*<SetPrimesType>*/(
     })
 );
 
+// inst / instrument
+
+export type SetInstValueType = NodeType & {
+    inst: string;
+};
+
+export const SetInstValue = node/*<SetInstValueType>*/(
+    'SetInstValue',
+    /^([a-zA-Z0-9_-]+)/,
+    ([inst]: [string]) => ({
+        inst,
+        len: inst.length
+    })
+);
+
+export type SetInstType = NodeType & {
+    inst: string;
+};
+
+export const SetInst = node/*<SetInstType>*/(
+    'SetInst',
+    All(/^((?:inst|instrument|i):\s*)/, SetInstValue),
+    ([prefix, value]: [string, SetInstValueType]) => ({
+        inst: value.inst,
+        len: prefix.length + value.len
+    })
+);
+
 // setters
 
-export type SetterType = SetBpmType|SetBmsType|SetSubdivisionType|SetOscType|SetEnvType|SetRulerType|SetTrackType|SetVolumeType|SetPrimesType;
+export type SetterType = SetBpmType|SetBmsType|SetSubdivisionType|SetOscType|SetEnvType|SetRulerType|SetTrackType|SetVolumeType|SetPrimesType|SetInstType;
 
-export const Setter = Any(SetBpm, SetBms, SetSubdivision, SetOsc, SetEnv, SetRuler, SetTrack, SetVolume, SetPrimes);
+export const Setter = Any(SetBpm, SetBms, SetSubdivision, SetOsc, SetEnv, SetRuler, SetTrack, SetVolume, SetPrimes, SetInst);
 
 export type SetterGroupType = NodeType & {
     setters: SetterType[];
@@ -730,7 +801,7 @@ export const Comment = node/*<CommentType>*/(
 // sequence
 //
 
-export type SequenceItemsType = RatioChordType|NoteType|ChordType|RestType|SetterGroupType|SetScaleType|SetRootType|CommentType;
+export type SequenceItemsType = RatioChordType|PercussionNoteType|NoteType|ChordType|RestType|SetterGroupType|SetScaleType|SetRootType|CommentType;
 
 export type SequenceType = NodeType & {
     items: SequenceItemsType[];
@@ -738,7 +809,7 @@ export type SequenceType = NodeType & {
 
 export const Sequence = node/*<SequenceType>*/(
     'Sequence',
-    Star(Any(Whitespace, Comment, RatioChord, Note, Chord, Rest, SetterGroup, SetScale, SetRoot, BarLine)),
+    Star(Any(Whitespace, Comment, RatioChord, PercussionNote, Note, Chord, Rest, SetterGroup, SetScale, SetRoot, BarLine)),
     (items: SequenceItemsType[]) => ({
         items,
         len: sumLen(items)
