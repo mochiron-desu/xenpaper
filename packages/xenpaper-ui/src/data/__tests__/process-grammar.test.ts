@@ -899,4 +899,24 @@ describe('grammar to ruler state', () => {
         // @ts-ignore
         expect(note.hz).toBeAround(220 * Math.pow(2, 700 / 1200));
     });
+
+    it('should extract section chapters and detect misaligned bars across tracks', () => {
+        const ast = parser(
+            '# --- Intro ---\n(track:a) 0 1 2 | 3 4 |\n# === Outro ===\n(track:b) 0 1 | 2 3 4 |'
+        );
+        const result = processGrammar(ast);
+        expect(result.chapters).toEqual([
+            { label: 'Intro', time: [0, 0] }
+        ]);
+        expect(result.barWarnings).toEqual([
+            {
+                pos: 70,
+                message: 'Bar 1 of track "b" is 1 beat long, other tracks are 1.5 beats'
+            },
+            {
+                pos: 78,
+                message: 'Bar 2 of track "b" is 1.5 beats long, other tracks are 1 beat'
+            }
+        ]);
+    });
 });

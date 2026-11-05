@@ -17,9 +17,27 @@ const fadeIn = keyframes`
   }
 `;
 
-export const ErrorMessage = styled.div`
+export const ErrorMessage = styled.div<{clickable?: boolean}>`
     position: relative;
     top: 0;
     padding-left: 1rem;
     animation: ${fadeIn} .7s ease-out forwards;
+    ${props => props.clickable ? `
+        cursor: pointer;
+        &:hover {
+            text-decoration: underline;
+        }
+    ` : ''}
+`;
+
+export const WarningMessage = styled.div`
+    position: relative;
+    top: 0;
+    padding-left: 1rem;
+    color: #e6c229;
+    cursor: pointer;
+    animation: ${fadeIn} .7s ease-out forwards;
+    &:hover {
+        text-decoration: underline;
+    }
 `;

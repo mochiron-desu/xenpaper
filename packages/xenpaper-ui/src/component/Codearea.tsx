@@ -1,5 +1,5 @@
-import React from 'react';
-import styled from 'styled-components';
+import React, {useCallback} from 'react';
+import styled, {keyframes} from 'styled-components';
 import {Text} from '../component/Text';
 import {textStyle, typography} from 'styled-system';
 
@@ -8,10 +8,54 @@ type Props = {
     onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
     charElements: React.ReactNode;
     freeze: boolean;
+    onTextareaClick?: (e: React.MouseEvent<HTMLTextAreaElement>) => void;
 };
 
 export const Codearea = (props: Props): React.ReactElement => {
-    const {value, onChange, charElements, freeze} = props;
+    const {value, onChange, charElements, freeze, onTextareaClick} = props;
+
+    const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+            e.preventDefault();
+            const ta = e.currentTarget;
+            const selStart = ta.selectionStart;
+            const selEnd = ta.selectionEnd;
+            const lineStart = value.lastIndexOf('\n', selStart - 1) + 1;
+            const effectiveEnd = selEnd > selStart && value[selEnd - 1] === '\n' ? selEnd - 1 : selEnd;
+            const nextNl = value.indexOf('\n', effectiveEnd);
+            const blockEnd = nextNl === -1 ? value.length : nextNl;
+            const lines = value.slice(lineStart, blockEnd).split('\n');
+
+            const shouldUncomment =
+                lines.some(l => /^\s*#/.test(l)) &&
+                lines.every(l => l.trim().length === 0 || /^\s*#/.test(l));
+
+            let firstDelta = 0;
+            let totalDelta = 0;
+            const newLines = lines.map((line, idx) => {
+                const updated = shouldUncomment
+                    ? line.replace(/^(\s*)# ?/, '$1')
+                    : `# ${line}`;
+                const d = updated.length - line.length;
+                if (idx === 0) firstDelta = d;
+                totalDelta += d;
+                return updated;
+            });
+
+            const nextValue =
+                value.slice(0, lineStart) + newLines.join('\n') + value.slice(blockEnd);
+            const nextStart =
+                selStart === lineStart && selEnd > selStart
+                    ? selStart
+                    : Math.max(lineStart, selStart + firstDelta);
+            const nextEnd = Math.max(nextStart, selEnd + totalDelta);
+
+            onChange({target: {value: nextValue}} as React.ChangeEvent<HTMLTextAreaElement>);
+            requestAnimationFrame(() => {
+                ta.setSelectionRange(nextStart, nextEnd);
+            });
+        }
+    }, [value, onChange]);
 
     const content = value === ''
         ? <Text color="text.placeholder" style={{fontStyle: "italic"}}>
@@ -25,6 +69,8 @@ export const Codearea = (props: Props): React.ReactElement => {
             <Textarea
                 value={value}
                 onChange={onChange}
+                onKeyDown={handleKeyDown}
+                onClick={onTextareaClick}
                 autoCapitalize="off"
                 autoComplete="off"
                 autoCorrect="off"
@@ -126,6 +172,15 @@ const Textarea = styled.textarea`
     }
 `;
 
+const flashAnim = keyframes`
+    0%, 100% {
+        background-color: transparent;
+    }
+    25%, 75% {
+        background-color: rgba(255, 255, 255, 0.35);
+    }
+`;
+
 type HighlightProps = {
     freeze: boolean;
 };
@@ -174,6 +229,14 @@ const Highlight = styled.pre<HighlightProps>`
         transition: color 0.2s 0.5s ease-out;
     }
     .char.hl-errorMessage { color: ${props => props.theme.colors.highlights.errorMessage}; }
+    .char.warn {
+        color: #e6c229;
+        text-decoration: underline wavy #e6c229;
+    }
+    .char.flash {
+        animation: ${flashAnim} 0.9s ease-in-out;
+        border-radius: 2px;
+    }
     .char.active {
         transition: color 0s 0s linear;
         color: #fff;

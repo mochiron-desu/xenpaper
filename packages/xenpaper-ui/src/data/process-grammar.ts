@@ -29,6 +29,7 @@ import type {
     SetTrackType,
     SetVolumeType,
     SetPrimesType,
+    CommentType,
     DelimiterType,
 } from "./grammar";
 
@@ -732,9 +733,32 @@ const setterToRulerState = (
     return initial;
 };
 
+export type Chapter = {
+    label: string;
+    // [startMs, startMs], mutated from step time to ms along with other times
+    time: [number, number];
+};
+
+export type BarWarning = {
+    pos: number;
+    message: string;
+};
+
 export type Processed = {
     score?: MoscScore;
     initialRulerState?: InitialRulerState;
+    chapters?: Chapter[];
+    barWarnings?: BarWarning[];
+};
+
+// a comment made only of decoration e.g. "# ======" or "# ------"
+const RULE_COMMENT = /^\s*[-=#*~_]{3,}\s*$/;
+// a comment decorated inline e.g. "# --- Section A ---" or "## Section A"
+const DECORATED_COMMENT = /^(\s*[-=]{2,}|#)\s*(.*?)[\s\-=#]*$/;
+
+const formatBeats = (n: number): string => {
+    const rounded = Math.round(n * 1000) / 1000;
+    return `${rounded} beat${rounded === 1 ? "" : "s"}`;
 };
 
 export const processGrammar = (grammar: XenpaperAST): Processed => {
@@ -814,11 +838,70 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
         plots: [],
     };
 
+    // chapters: heading comments, positioned at the next sounding item
+    const chapters: Chapter[] = [];
+    let pendingChapter: string | undefined;
+    let prevWasRuleComment = false;
+
+    // bars per track: list of [barline pos, bar length in steps]
+    const barsByTrack = new Map<string, { pos: number; length: number }[]>();
+    const barStartByTrack = new Map<string, number>();
+
+    const flushChapter = () => {
+        if (pendingChapter === undefined) return;
+        const last = chapters[chapters.length - 1];
+        if (!last || last.time[0] !== context.time) {
+            const arr: [number, number] = [context.time, context.time];
+            times.push(arr);
+            chapters.push({ label: pendingChapter, time: arr });
+        }
+        pendingChapter = undefined;
+    };
+
     grammarSequence.items.forEach((item): void => {
         const { type } = item;
-        if (type === "Comment" || type === "BarLine" || type === "Whitespace") {
-            // do nothing
+        if (type === "Whitespace") {
             return;
+        }
+
+        if (type === "Comment") {
+            const text = (item as CommentType).comment;
+            if (RULE_COMMENT.test(text)) {
+                prevWasRuleComment = true;
+                return;
+            }
+            const decorated = text.match(DECORATED_COMMENT);
+            if (decorated && decorated[2]) {
+                pendingChapter = decorated[2];
+            } else if (prevWasRuleComment && text.trim()) {
+                pendingChapter = text.trim();
+            }
+            prevWasRuleComment = false;
+            return;
+        }
+        prevWasRuleComment = false;
+
+        if (type === "BarLine") {
+            const track = context.track;
+            if (track !== undefined) {
+                const start = barStartByTrack.get(track) ?? 0;
+                const bars = barsByTrack.get(track) ?? [];
+                // rounded so float drift from e.g. div:3 doesn't cause false mismatches
+                const length = Math.round((context.time - start) * 1e6) / 1e6;
+                bars.push({ pos: item.pos, length });
+                barsByTrack.set(track, bars);
+                barStartByTrack.set(track, context.time);
+            }
+            return;
+        }
+
+        if (
+            type === "Note" ||
+            type === "Rest" ||
+            type === "Chord" ||
+            type === "RatioChord"
+        ) {
+            flushChapter();
         }
 
         if (type === "SetScale") {
@@ -900,6 +983,38 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
 
     initialRulerState = rulerStateCaptureRootHz(initialRulerState, context);
 
+    // compare the length of each numbered bar across tracks
+    const barWarnings: BarWarning[] = [];
+    if (barsByTrack.size > 1) {
+        const maxBars = Math.max(
+            ...Array.from(barsByTrack.values()).map((b) => b.length)
+        );
+        for (let i = 0; i < maxBars; i++) {
+            const counts = new Map<number, number>();
+            barsByTrack.forEach((bars) => {
+                const bar = bars[i];
+                if (bar) counts.set(bar.length, (counts.get(bar.length) ?? 0) + 1);
+            });
+            if (counts.size < 2) continue;
+            // the most common length is assumed to be correct
+            const expected = Array.from(counts.entries()).sort(
+                (a, b) => b[1] - a[1]
+            )[0][0];
+            barsByTrack.forEach((bars, track) => {
+                const bar = bars[i];
+                if (bar && bar.length !== expected) {
+                    barWarnings.push({
+                        pos: bar.pos,
+                        message: `Bar ${i + 1} of track "${track}" is ${formatBeats(
+                            bar.length
+                        )} long, other tracks are ${formatBeats(expected)}`,
+                    });
+                }
+            });
+        }
+        barWarnings.sort((a, b) => a.pos - b.pos);
+    }
+
     const maxTime = Math.max(
         preambleContext.time,
         ...Array.from(tracks.values()).map((t) => t.time)
@@ -933,5 +1048,7 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
     return {
         score,
         initialRulerState,
+        chapters,
+        barWarnings,
     };
 };

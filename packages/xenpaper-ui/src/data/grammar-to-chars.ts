@@ -16,6 +16,7 @@ export type HighlightColor = 'delimiter'
 export type CharData = {
     color: HighlightColor;
     playTime?: [number, number];
+    warning?: string;
 };
 
 const colorMap = new Map<string,HighlightColor>([

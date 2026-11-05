@@ -51,6 +51,8 @@ export class SoundEngineTonejs extends SoundEngine {
     _loopEndMs = 0;
     _scoreDirty = false;
     _activeNoteEvents = new Set<MoscItemMs>();
+    _mutedTracks = new Set<string>();
+    _trackBaseDb = new Map<string, number>();
 
     synth = new Tone.PolySynth(Tone.Synth, {
         oscillator: {
@@ -184,10 +186,40 @@ export class SoundEngineTonejs extends SoundEngine {
             const db = paramMs.value.vol <= 0
                 ? -Infinity
                 : 20 * Math.log10(paramMs.value.vol);
-            targetSynths.forEach(s => {
-                s.volume.value = db;
-            });
+            if(paramMs.track) {
+                this._trackBaseDb.set(paramMs.track, db);
+                this._syncTrackVolume(paramMs.track);
+            } else {
+                this._trackBaseDb.set('', db);
+                this._syncTrackVolume('');
+                this.trackSynths.forEach((_, t) => {
+                    this._trackBaseDb.set(t, db);
+                    this._syncTrackVolume(t);
+                });
+            }
         }
+    }
+
+    _syncTrackVolume(track: string): void {
+        const s = this.getSynth(track || undefined);
+        const muted = this._mutedTracks.has(track);
+        s.volume.value = muted ? -Infinity : (this._trackBaseDb.get(track) ?? 0);
+        if(muted) {
+            s.releaseAll();
+        }
+    }
+
+    setMutedTracks(tracks: Set<string>): void {
+        this._mutedTracks = new Set(tracks);
+        this._syncTrackVolume('');
+        this.trackSynths.forEach((_, t) => this._syncTrackVolume(t));
+        this._activeNoteEvents.forEach(item => {
+            const noteMs = item as MoscNoteMs;
+            if(this._mutedTracks.has(noteMs.track ?? '')) {
+                this._activeNoteEvents.delete(noteMs);
+                this._triggerEvent('note', noteMs, false);
+            }
+        });
     }
 
     setLoop(loop: boolean, startMs: number = 0, endMs: number = 0): void {
@@ -238,14 +270,15 @@ export class SoundEngineTonejs extends SoundEngine {
         Tone.Transport.cancel();
 
         // ensure track synths exist for all tracks in score and reset volumes
-        this.synth.volume.value = 0;
+        this._trackBaseDb.clear();
         this.scoreMs.sequence.forEach((item: MoscItemMs): void => {
             if((item.type === 'NOTE_MS' || item.type === 'PARAM_MS') && item.track) {
                 this.getSynth(item.track);
             }
         });
-        this.trackSynths.forEach(s => {
-            s.volume.value = 0;
+        this._syncTrackVolume('');
+        this.trackSynths.forEach((_, t) => {
+            this._syncTrackVolume(t);
         });
 
         const eventsBySec = new Map<number, Array<(time: number) => void>>();
@@ -265,6 +298,7 @@ export class SoundEngineTonejs extends SoundEngine {
                 const targetSynth = this.getSynth(noteMs.track);
                 const durationSec = (noteMs.msEnd - noteMs.ms) * 0.001;
                 addEvent(noteMs.ms * 0.001 + 0.1, (time: number) => {
+                    if(this._mutedTracks.has(noteMs.track ?? '')) return;
                     targetSynth.triggerAttackRelease(
                         noteMs.hz,
                         durationSec,
@@ -275,8 +309,9 @@ export class SoundEngineTonejs extends SoundEngine {
                 });
 
                 addEvent(noteMs.msEnd * 0.001 + 0.1, () => {
-                    this._activeNoteEvents.delete(noteMs);
-                    this._triggerEvent('note', noteMs, false);
+                    if(this._activeNoteEvents.delete(noteMs)) {
+                        this._triggerEvent('note', noteMs, false);
+                    }
                 });
 
                 return;

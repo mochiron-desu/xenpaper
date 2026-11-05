@@ -247,6 +247,7 @@ export class SoundEngine {
     setLoopActive(loop: boolean): void {}
     setLoopStart(ms: number = 0): void {}
     setLoopEnd(ms: number = 0): void {}
+    setMutedTracks(tracks: Set<string>): void {}
 
     async setScore(scoreMs: MoscScoreMs): Promise<void> {}
 

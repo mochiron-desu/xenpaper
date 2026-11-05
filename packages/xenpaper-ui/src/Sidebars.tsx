@@ -377,6 +377,19 @@ export const SidebarInfo = (props: SidebarInfoProps): React.ReactElement => {
                     onSetTune={onSetTune}
                 />
             </B>
+            <Box pt={4}>
+                <H>Shortcuts</H>
+            </Box>
+            <B>
+                - <C>Space</C> (outside editor): play / pause
+                <br />- <C>Ctrl / Cmd + Enter</C>: restart from selected line
+                <br />- <C>Ctrl / Cmd / Alt + Click</C> on a note: play from that
+                note
+                <br />- <C>Ctrl / Cmd + /</C>: comment or uncomment lines
+                <br />- <C>Ctrl / Cmd + Z</C> (<C>+ Shift</C>): undo / redo
+                <br />- <C>←</C> / <C>→</C> / <C>Home</C> / <C>End</C> (on
+                timeline): seek
+            </B>
         </Sidebar>
     );
 };

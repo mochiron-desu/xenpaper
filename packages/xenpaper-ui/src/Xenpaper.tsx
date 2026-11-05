@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { AppWrapper } from "./AppWrapper";
 import { IconToggle } from "./component/IconToggle";
 import { Codearea } from "./component/Codearea";
-import { ErrorMessage } from "./component/ErrorMessage";
+import { ErrorMessage, WarningMessage } from "./component/ErrorMessage";
 import { Timeline } from "./component/Timeline";
 import { LoaderPane } from "./component/LoaderPane";
 import { Box, Flex } from "./layout/Layout";
@@ -15,7 +15,7 @@ import { XenpaperGrammarParser } from "./data/grammar";
 
 import { grammarToChars } from "./data/grammar-to-chars";
 import { processGrammar } from "./data/process-grammar";
-import type { InitialRulerState } from "./data/process-grammar";
+import type { InitialRulerState, Chapter, BarWarning } from "./data/process-grammar";
 import type { MoscNoteMs } from "@xenpaper/mosc";
 import type { HighlightColor, CharData } from "./data/grammar-to-chars";
 
@@ -56,6 +56,7 @@ type LineToken = {
     text: string;
     color: HighlightColor;
     playTime?: [number, number];
+    warning?: string;
 };
 
 type ParsedLine = {
@@ -68,12 +69,16 @@ type ParsedLine = {
 type ParsedData = {
     chars: CharData[];
     lines: ParsedLine[];
+    chapters: Chapter[];
+    barWarnings: BarWarning[];
 };
 
 type Parsed = {
     data: Boxed<ParsedData>;
     initialRulerState?: InitialRulerState;
     error: string;
+    // char index of a parse error, if known
+    errorAt?: number;
 };
 
 const tokenizeLine = (
@@ -87,25 +92,40 @@ const tokenizeLine = (
     const tokens: LineToken[] = [];
     let curColor: HighlightColor = lineChars?.[0]?.color || "unknown";
     let curPlayTime = lineChars?.[0]?.playTime;
+    let curWarning = lineChars?.[0]?.warning;
     let runStart = 0;
     let signature = "";
+
+    const push = (end: number) => {
+        tokens.push({
+            text: text.slice(runStart, end),
+            color: curColor,
+            playTime: curPlayTime,
+            warning: curWarning,
+        });
+        signature += `${curColor}:${end - runStart}:${curPlayTime ? 1 : 0}:${
+            curWarning ?? ""
+        };`;
+    };
 
     for (let i = 1; i < len; i++) {
         const cd = lineChars?.[i];
         const color: HighlightColor = cd?.color || "unknown";
         const playTime = cd?.playTime;
-        if (color !== curColor || playTime !== curPlayTime) {
-            const slice = text.slice(runStart, i);
-            tokens.push({ text: slice, color: curColor, playTime: curPlayTime });
-            signature += `${curColor}:${i - runStart}:${curPlayTime ? 1 : 0};`;
+        const warning = cd?.warning;
+        if (
+            color !== curColor ||
+            playTime !== curPlayTime ||
+            warning !== curWarning
+        ) {
+            push(i);
             curColor = color;
             curPlayTime = playTime;
+            curWarning = warning;
             runStart = i;
         }
     }
-    const slice = text.slice(runStart, len);
-    tokens.push({ text: slice, color: curColor, playTime: curPlayTime });
-    signature += `${curColor}:${len - runStart}:${curPlayTime ? 1 : 0};`;
+    push(len);
 
     return { tokens, signature };
 };
@@ -128,8 +148,14 @@ const buildParsedLines = (unparsed: string, chars: CharData[]): ParsedLine[] => 
 const parse = (unparsed: string): Parsed => {
     try {
         const parsed = XenpaperGrammarParser(unparsed);
-        const { score, initialRulerState } = processGrammar(parsed);
+        const { score, initialRulerState, chapters = [], barWarnings = [] } =
+            processGrammar(parsed);
         const chars = grammarToChars(parsed);
+
+        // chars share objects per token, so copy before tagging a single char
+        barWarnings.forEach(({ pos, message }) => {
+            chars[pos] = { ...(chars[pos] ?? { color: "delimiter" }), warning: message };
+        });
 
         if (score) {
             const scoreMs = scoreToMs(score);
@@ -140,6 +166,8 @@ const parse = (unparsed: string): Parsed => {
             data: new Boxed({
                 chars,
                 lines: buildParsedLines(unparsed, chars),
+                chapters,
+                barWarnings,
             }),
             initialRulerState,
             error: "",
@@ -191,9 +219,12 @@ const parse = (unparsed: string): Parsed => {
             data: new Boxed({
                 chars,
                 lines: buildParsedLines(unparsed, chars),
+                chapters: [],
+                barWarnings: [],
             }),
             initialRulerState: undefined,
             error,
+            errorAt,
         };
     }
 };
@@ -234,6 +265,16 @@ const getMsAtLine = (
 //
 
 const FOLLOW_PAUSE_MS = 3000;
+
+const isInteractiveElement = (target: EventTarget | null): boolean => {
+    const el = target as HTMLElement | null;
+    if (!el || !el.tagName) return false;
+    return (
+        ["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A"].includes(el.tagName) ||
+        el.isContentEditable ||
+        el.getAttribute("role") === "slider"
+    );
+};
 
 const PLAY_PATHS = {
     paused: ["M 0 0 L 12 6 L 0 12 Z"],
@@ -454,19 +495,28 @@ export function XenpaperApp(props: Props): React.ReactElement {
     const handleSetPlayback = useCallback((play: boolean) => {
         if (parsedForm.value.error) return;
 
-        soundEngine.gotoMs(play ? getIdleMs() : getLineStartMs());
-        pendingSeekMs.current = null;
-
-        playing.set(play);
-
         if (play) {
+            // resume from a paused / seeked position, else from the selected line
+            const startMs = getIdleMs();
+            pendingSeekMs.current = null;
+            soundEngine.gotoMs(startMs);
+            playing.set(true);
             soundEngine.play();
             rulerState.set((draft) => {
                 draft.notes.clear();
             });
         } else {
+            if (soundEngine.playing()) {
+                pendingSeekMs.current = soundEngine.position();
+            }
+            playing.set(false);
             soundEngine.pause();
         }
+    }, []);
+
+    const handleRestart = useCallback(() => {
+        pendingSeekMs.current = null;
+        handleSetPlayback(true);
     }, []);
 
     const handleTogglePlayback = useCallback((state: string) => {
@@ -478,6 +528,35 @@ export function XenpaperApp(props: Props): React.ReactElement {
             soundEngine.gotoMs(ms);
         } else {
             pendingSeekMs.current = ms;
+        }
+    }, []);
+
+    const handleSelectLine = useCallback((line: number) => {
+        pendingSeekMs.current = null;
+        selectedLine.set(line);
+    }, []);
+
+    // ctrl/cmd/alt + click on a note plays from that note
+    const handlePlayFromChar = useCallback((index: number) => {
+        const tune = tuneForm.value.tune;
+        const chars = parsedForm.value.data.value.chars;
+        const startOf = (i: number) =>
+            tune[i] !== "\n" ? chars[i]?.playTime?.[0] : undefined;
+
+        let ms = startOf(index) ?? startOf(index - 1);
+        for (let i = index + 1; ms === undefined && i < tune.length && tune[i] !== "\n"; i++) {
+            ms = startOf(i);
+        }
+        for (let i = index - 2; ms === undefined && i >= 0 && tune[i] !== "\n"; i--) {
+            ms = startOf(i);
+        }
+        if (ms === undefined) return;
+
+        if (soundEngine.playing()) {
+            soundEngine.gotoMs(ms);
+        } else {
+            pendingSeekMs.current = ms;
+            handleSetPlayback(true);
         }
     }, []);
 
@@ -494,7 +573,18 @@ export function XenpaperApp(props: Props): React.ReactElement {
     useEffect(() => {
         const callback = (event: KeyboardEvent) => {
             if ((event.ctrlKey || event.metaKey) && event.keyCode === 13) {
-                handleSetPlayback(playing.value);
+                handleRestart();
+            }
+            // space toggles play/pause when not typing or using a control
+            if (
+                event.code === "Space" &&
+                !event.ctrlKey &&
+                !event.metaKey &&
+                !event.altKey &&
+                !isInteractiveElement(event.target)
+            ) {
+                event.preventDefault();
+                handleSetPlayback(!playing.value);
             }
             if ((event.ctrlKey || event.metaKey) && event.keyCode === 90) {
                 event.preventDefault();
@@ -532,6 +622,7 @@ export function XenpaperApp(props: Props): React.ReactElement {
 
     const onSetTune = useCallback(async (tune: string): Promise<void> => {
         tuneForm.branch("tune").set(tune);
+        pendingSeekMs.current = null;
         await soundEngine.gotoMs(0);
         handleSetPlayback(true);
     }, []);
@@ -623,19 +714,25 @@ export function XenpaperApp(props: Props): React.ReactElement {
             tuneForm={tuneForm}
             parsedForm={parsedForm}
             selectedLine={selectedLine}
+            onSelectLine={handleSelectLine}
+            onPlayFromChar={handlePlayFromChar}
         />
     );
 
     const htmlTitle = <SetHtmlTitle tuneForm={tuneForm} />;
 
-    const timeline = parsedForm.render("data", (form) => (
-        <Timeline
-            engine={soundEngine}
-            scoreKey={form.useValue()}
-            getIdleMs={getIdleMs}
-            onSeek={handleSeek}
-        />
-    ));
+    const timeline = parsedForm.render("data", (form) => {
+        const data = form.useValue();
+        return (
+            <Timeline
+                engine={soundEngine}
+                scoreKey={data}
+                chapters={data.value.chapters}
+                getIdleMs={getIdleMs}
+                onSeek={handleSeek}
+            />
+        );
+    });
 
     const openOnXenpaper = tuneForm.render("url", (form) => (
         <EditOnXenpaperButton href={form.useValue()} target="_blank">
@@ -862,7 +959,13 @@ const CodeLine = React.memo(
                             {token.text}
                         </span>
                     ) : (
-                        <span key={idx} className={`char hl-${token.color}`}>
+                        <span
+                            key={idx}
+                            className={`char hl-${token.color}${
+                                token.warning ? " warn" : ""
+                            }`}
+                            data-warn={token.warning}
+                        >
                             {token.text}
                         </span>
                     )
@@ -884,6 +987,29 @@ type CodePanelProps = {
     tuneForm: Dendriform<TuneForm>;
     parsedForm: Dendriform<Parsed>;
     selectedLine: Dendriform<number>;
+    onSelectLine: (line: number) => void;
+    onPlayFromChar: (index: number) => void;
+};
+
+const MAX_WARNINGS_SHOWN = 5;
+
+// scroll a highlighted span into view, flash it, and optionally put the caret there
+const revealInCode = (el: Element | undefined | null, charIndex?: number): void => {
+    if (el) {
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+        el.classList.remove("flash");
+        void (el as HTMLElement).offsetWidth; // restart the animation
+        el.classList.add("flash");
+    }
+    if (charIndex !== undefined) {
+        const textarea = document.querySelector<HTMLTextAreaElement>(
+            "[data-codepane] textarea"
+        );
+        if (textarea && !textarea.disabled) {
+            textarea.focus({ preventScroll: true });
+            textarea.setSelectionRange(charIndex, charIndex);
+        }
+    }
 };
 
 function CodePanel(props: CodePanelProps): React.ReactElement {
@@ -907,11 +1033,15 @@ function CodePanel(props: CodePanelProps): React.ReactElement {
             events.forEach((e) => window.removeEventListener(e, markUserScroll));
     }, []);
 
-    const handleSelectLine = useCallback(
-        (line: number) => {
-            props.selectedLine.set(line);
+    const { onSelectLine: handleSelectLine, onPlayFromChar } = props;
+
+    const handleTextareaClick = useCallback(
+        (e: React.MouseEvent<HTMLTextAreaElement>) => {
+            if (e.ctrlKey || e.metaKey || e.altKey) {
+                onPlayFromChar(e.currentTarget.selectionStart);
+            }
         },
-        [props.selectedLine]
+        [onPlayFromChar]
     );
 
     useAnimationFrame(() => {
@@ -978,8 +1108,9 @@ function CodePanel(props: CodePanelProps): React.ReactElement {
         const embed = form.branch("embed").useValue();
 
         // get dendriform state values
-        const { data, error } = props.parsedForm.useValue();
+        const { data, error, errorAt } = props.parsedForm.useValue();
         const parsedLines = data.value.lines;
+        const barWarnings = data.value.barWarnings;
         const selectedLineValue = props.selectedLine.useValue();
 
         // use value with a 200ms debounce for perf reasons
@@ -1053,16 +1184,51 @@ function CodePanel(props: CodePanelProps): React.ReactElement {
         // stop event propagation here so we can detect clicks outside of this element in isolation
         const stopPropagation = (e: Event) => e.stopPropagation();
 
+        const showError = () =>
+            revealInCode(document.querySelector("[data-codepane] .hl-error"), errorAt);
+
+        const showWarning = ({ pos, message }: BarWarning) => {
+            const el = Array.from(
+                document.querySelectorAll<HTMLElement>("[data-codepane] .warn")
+            ).find((span) => span.dataset.warn === message);
+            revealInCode(el, pos);
+        };
+
         return (
             <Box onClick={stopPropagation}>
                 <Codearea
                     {...inputProps}
                     charElements={charElements}
                     freeze={embed}
+                    onTextareaClick={handleTextareaClick}
                 />
                 {error && (
                     <Box>
-                        <ErrorMessage>Error: {error}</ErrorMessage>
+                        <ErrorMessage
+                            onClick={errorAt !== undefined ? showError : undefined}
+                            clickable={errorAt !== undefined}
+                            title={errorAt !== undefined ? "Show error" : undefined}
+                        >
+                            Error: {error}
+                        </ErrorMessage>
+                    </Box>
+                )}
+                {!error && barWarnings.length > 0 && (
+                    <Box>
+                        {barWarnings.slice(0, MAX_WARNINGS_SHOWN).map((w) => (
+                            <WarningMessage
+                                key={w.pos}
+                                onClick={() => showWarning(w)}
+                                title="Show bar"
+                            >
+                                Warning: {w.message}
+                            </WarningMessage>
+                        ))}
+                        {barWarnings.length > MAX_WARNINGS_SHOWN && (
+                            <WarningMessage as="div">
+                                ...and {barWarnings.length - MAX_WARNINGS_SHOWN} more
+                            </WarningMessage>
+                        )}
                     </Box>
                 )}
             </Box>
