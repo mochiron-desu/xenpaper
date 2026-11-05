@@ -121,12 +121,17 @@ type TempoChange = {
 };
 
 const findTempoRangeForTime = (tempoChanges: TempoChange[], time: number): TempoChange => {
-    for(let i = tempoChanges.length - 1; i >= 0; i--) {
-        if(time >= tempoChanges[i].time) {
-            return tempoChanges[i];
+    let lo = 0;
+    let hi = tempoChanges.length - 1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >>> 1;
+        if (tempoChanges[mid].time <= time) {
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
         }
     }
-    return tempoChanges[0];
+    return tempoChanges[hi >= 0 ? hi : 0];
 };
 
 export const timeToMs = (items: MoscItem[]): ((time: number) => number) => {

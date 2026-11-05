@@ -65,9 +65,11 @@ const colorMap = new Map<string,HighlightColor>([
 ]);
 
 // need to pass playhead time in
-const extract = (chars: CharData[], data: any, parent: string, withinTime?: number): void => {
+const extract = (chars: CharData[], data: any, parent: string, withinTime?: [number, number]): void => {
     if(Array.isArray(data)) {
-        data.forEach(value => extract(chars, value, parent, withinTime));
+        for(let i = 0; i < data.length; i++) {
+            extract(chars, data[i], parent, withinTime);
+        }
         return;
     }
     if(data instanceof Object) {
@@ -75,16 +77,40 @@ const extract = (chars: CharData[], data: any, parent: string, withinTime?: numb
         const time = withinTime ?? data.time;
 
         if(typeof data.pos === 'number' && typeof data.len === 'number' && color) {
-            for(let i = 0; i < data.len; i++) {
-                chars[data.pos + i] = {
-                    color: (color === 'comment' && i === 0) ? 'commentStart' : color,
+            if(color === 'comment') {
+                if(data.len > 0) {
+                    chars[data.pos] = {
+                        color: 'commentStart',
+                        playTime: time
+                    };
+                }
+                if(data.len > 1) {
+                    const commentCharData: CharData = {
+                        color: 'comment',
+                        playTime: time
+                    };
+                    for(let i = 1; i < data.len; i++) {
+                        chars[data.pos + i] = commentCharData;
+                    }
+                }
+            } else {
+                const charData: CharData = {
+                    color,
                     playTime: time
                 };
+                for(let i = 0; i < data.len; i++) {
+                    chars[data.pos + i] = charData;
+                }
             }
         }
-        Object.keys(data).forEach(key => {
-            extract(chars, data[key], data.type, time);
-        });
+        for(const key in data) {
+            if(key !== 'time') {
+                const val = data[key];
+                if(val instanceof Object) {
+                    extract(chars, val, data.type, time);
+                }
+            }
+        }
         return;
     }
 };

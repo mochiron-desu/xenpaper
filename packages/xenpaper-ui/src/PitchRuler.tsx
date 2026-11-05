@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import useDimensions from 'react-use-dimensions';
 import * as ReactKonva from 'react-konva';
 import {useStrictMode} from 'react-konva';
@@ -61,13 +61,25 @@ const getGradientColorFromNote = (note: MoscNoteMs): string => {
     return hsl(hue, 100, 66);
 };
 
-const getColorFromNoteProximity = (note: MoscNoteMs, proxNotes: MoscNoteMs[], threshold: number, hard: boolean): string => {
+const getColorFromNoteProximity = (note: MoscNoteMs, sortedCents: number[], threshold: number, hard: boolean): string => {
     const noteCents = panToCents(hzToPan(note.hz));
-    let distance = Math.min(
-        ...proxNotes
-            .map(note => panToCents(hzToPan(note.hz)))
-            .map(cents => Math.abs(noteCents - cents))
-    ) / threshold;
+    let minDiff = Infinity;
+    let lo = 0;
+    let hi = sortedCents.length - 1;
+    while(lo <= hi) {
+        const mid = (lo + hi) >>> 1;
+        const val = sortedCents[mid];
+        const diff = Math.abs(noteCents - val);
+        if(diff < minDiff) minDiff = diff;
+        if(val < noteCents) {
+            lo = mid + 1;
+        } else if(val > noteCents) {
+            hi = mid - 1;
+        } else {
+            break;
+        }
+    }
+    let distance = minDiff / threshold;
 
     if(hard) {
         distance = distance > 1 ? 1000 : distance;
@@ -210,10 +222,33 @@ function PitchRulerCanvas(props: Props): React.ReactElement|null {
         colourModeSoft
     } = rulerState;
 
-    const visibleRange: [number,number] = [
+    const visibleRange = useMemo((): [number,number] => [
         panToHz(pxToPan(height, viewPan, viewZoom, height)),
         panToHz(pxToPan(0, viewPan, viewZoom, height))
-    ];
+    ], [height, viewPan, viewZoom]);
+
+    const collectedNotes = useMemo(() => Array.from(notes.values()), [notes]);
+
+    const activeNotes = useMemo(() => {
+        const byHz = new Map<number, MoscNoteMs>();
+        notesActive.forEach(note => byHz.set(note.hz, note));
+        return Array.from(byHz.values());
+    }, [notesActive]);
+
+    const proxNotesDep = colourMode === 'proxnotes' ? collectedNotes : null;
+    const compareCents = useMemo((): number[] => {
+        if(colourMode === 'gradient') return [];
+        let compare: MoscNoteMs[] = [];
+        if(colourMode === 'proxnotes') {
+            compare = collectedNotes;
+        } else if(colourMode.startsWith('proxplot')) {
+            const index = Number(colourMode.replace('proxplot',''));
+            compare = plots[index] ?? [];
+        }
+        return compare
+            .map(n => panToCents(hzToPan(n.hz)))
+            .sort((a, b) => a - b);
+    }, [colourMode, proxNotesDep, plots]);
 
     const total = plots.length + 1;
     const noteSetWidth = (width - 60) / total;
@@ -231,21 +266,13 @@ function PitchRulerCanvas(props: Props): React.ReactElement|null {
             return getGradientColorFromNote(note);
         }
 
-        let compare: MoscNoteMs[] = [];
-        if(colourMode === 'proxnotes') {
-            compare = Array.from(notes.values());
-        } else if(colourMode.startsWith('proxplot')) {
-            const index = Number(colourMode.replace('proxplot',''));
-            compare = plots[index] ?? [];
-        }
-
         return getColorFromNoteProximity(
             note,
-            compare,
+            compareCents,
             colourModeThreshold,
             !colourModeSoft
         );
-    }, [colourMode, colourModeThreshold, colourModeSoft, notes, plots]);
+    }, [colourMode, colourModeThreshold, colourModeSoft, compareCents]);
 
     //
     // interactions
@@ -353,7 +380,7 @@ function PitchRulerCanvas(props: Props): React.ReactElement|null {
                 }
                 {rulerState.collect &&
                     <NoteSet
-                        notes={Array.from(notes.values())}
+                        notes={collectedNotes}
                         getY={getY}
                         width={noteSetWidth}
                         x={0}
@@ -373,7 +400,7 @@ function PitchRulerCanvas(props: Props): React.ReactElement|null {
                     />
                 })}
                 <NoteSet
-                    notes={Array.from(notesActive.values())}
+                    notes={activeNotes}
                     getY={getY}
                     color="#FFFFFF"
                     width={noteSetWidth}

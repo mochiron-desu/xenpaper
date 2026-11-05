@@ -154,4 +154,49 @@ const Highlight = styled.pre<HighlightProps>`
     pointer-events: ${props => props.freeze ? 'auto' : 'none'};
     padding: 1rem 1rem 1rem 2rem;
     user-select: none;
+
+    .char {
+        color: ${props => props.theme.colors.highlights.unknown};
+        transition: color 0.2s 0s ease-out;
+    }
+    .char.hl-delimiter { color: ${props => props.theme.colors.highlights.delimiter}; }
+    .char.hl-pitch { color: ${props => props.theme.colors.highlights.pitch}; }
+    .char.hl-chord { color: ${props => props.theme.colors.highlights.chord}; }
+    .char.hl-setterGroup { color: ${props => props.theme.colors.highlights.setterGroup}; }
+    .char.hl-setter { color: ${props => props.theme.colors.highlights.setter}; }
+    .char.hl-scaleGroup { color: ${props => props.theme.colors.highlights.scaleGroup}; }
+    .char.hl-scale { color: ${props => props.theme.colors.highlights.scale}; }
+    .char.hl-comment { color: ${props => props.theme.colors.highlights.comment}; }
+    .char.hl-commentStart { color: ${props => props.theme.colors.highlights.commentStart}; }
+    .char.hl-unknown { color: ${props => props.theme.colors.highlights.unknown}; }
+    .char.hl-error {
+        color: ${props => props.theme.colors.highlights.error};
+        transition: color 0.2s 0.5s ease-out;
+    }
+    .char.hl-errorMessage { color: ${props => props.theme.colors.highlights.errorMessage}; }
+    .char.active {
+        transition: color 0s 0s linear;
+        color: #fff;
+    }
+    .play-start {
+        position: absolute;
+        left: 0.8rem;
+        border: none;
+        display: block;
+        cursor: pointer;
+        color: ${props => props.theme.colors.text.placeholder};
+        outline: none;
+        opacity: 0.2;
+        pointer-events: auto;
+        transition: opacity 0.2s ease-out;
+
+        &:hover,
+        &:focus,
+        &:active {
+            opacity: 1;
+        }
+    }
+    .play-start.selected {
+        opacity: 1;
+    }
 `;

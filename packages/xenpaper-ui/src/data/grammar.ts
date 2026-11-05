@@ -738,7 +738,7 @@ export type SequenceType = NodeType & {
 
 export const Sequence = node/*<SequenceType>*/(
     'Sequence',
-    Star(Any(Comment, RatioChord, Note, Chord, Rest, SetterGroup, SetScale, SetRoot, BarLine, Whitespace)),
+    Star(Any(Whitespace, Comment, RatioChord, Note, Chord, Rest, SetterGroup, SetScale, SetRoot, BarLine)),
     (items: SequenceItemsType[]) => ({
         items,
         len: sumLen(items)
@@ -800,8 +800,6 @@ export const XenpaperGrammarParser = (input: string): XenpaperAST => {
     try {
         return parser(input);
     } catch(e) {
-        // eslint-disable-next-line no-console
-        console.error('e', e);
         throw new Error(e.message.replace(/Remainder:.*/s, ''));
     }
 };

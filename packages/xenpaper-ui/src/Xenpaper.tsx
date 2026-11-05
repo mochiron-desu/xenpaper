@@ -1,28 +1,26 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { AppWrapper } from "./AppWrapper";
 import { IconToggle } from "./component/IconToggle";
 import { Codearea } from "./component/Codearea";
 import { ErrorMessage } from "./component/ErrorMessage";
 import { LoaderPane } from "./component/LoaderPane";
-import { Char } from "./component/Char";
 import { Box, Flex } from "./layout/Layout";
 import { Sidebar, SidebarInfo, SidebarShare } from "./Sidebars";
 import styled from "styled-components";
 
 import { PitchRuler, useRulerState } from "./PitchRuler";
-import type { RulerState } from "./PitchRuler";
 
 import { XenpaperGrammarParser } from "./data/grammar";
-import type { XenpaperAST, SetterGroupType } from "./data/grammar";
 
 import { grammarToChars } from "./data/grammar-to-chars";
 import { processGrammar } from "./data/process-grammar";
 import type { InitialRulerState } from "./data/process-grammar";
-import type { MoscScore } from "@xenpaper/mosc";
+import type { MoscNoteMs } from "@xenpaper/mosc";
 import type { HighlightColor, CharData } from "./data/grammar-to-chars";
 
 import { useHash, hashify } from "./hooks/useHash";
 import { useWindowLoaded } from "./hooks/useWindowLoaded";
+import { useAnimationFrame } from "./hooks/useAnimationFrame";
 
 import { useDendriform, useInput } from "dendriform";
 import type { Dendriform } from "dendriform";
@@ -46,12 +44,84 @@ const soundEngine: SoundEngine = new SoundEngineTonejs();
 // xenpaper ast parsing
 //
 
+class Boxed<T> {
+    value: T;
+    constructor(value: T) {
+        this.value = value;
+    }
+}
+
+type LineToken = {
+    text: string;
+    color: HighlightColor;
+    playTime?: [number, number];
+};
+
+type ParsedLine = {
+    text: string;
+    chars: (CharData | undefined)[];
+    tokens: LineToken[];
+    signature: string;
+};
+
+type ParsedData = {
+    chars: CharData[];
+    lines: ParsedLine[];
+};
+
 type Parsed = {
-    parsed?: XenpaperAST;
-    chars?: CharData[];
-    score?: MoscScore;
+    data: Boxed<ParsedData>;
     initialRulerState?: InitialRulerState;
     error: string;
+};
+
+const tokenizeLine = (
+    text: string,
+    lineChars?: (CharData | undefined)[]
+): { tokens: LineToken[]; signature: string } => {
+    const len = text.length;
+    if (len === 0) {
+        return { tokens: [], signature: "" };
+    }
+    const tokens: LineToken[] = [];
+    let curColor: HighlightColor = lineChars?.[0]?.color || "unknown";
+    let curPlayTime = lineChars?.[0]?.playTime;
+    let runStart = 0;
+    let signature = "";
+
+    for (let i = 1; i < len; i++) {
+        const cd = lineChars?.[i];
+        const color: HighlightColor = cd?.color || "unknown";
+        const playTime = cd?.playTime;
+        if (color !== curColor || playTime !== curPlayTime) {
+            const slice = text.slice(runStart, i);
+            tokens.push({ text: slice, color: curColor, playTime: curPlayTime });
+            signature += `${curColor}:${i - runStart}:${curPlayTime ? 1 : 0};`;
+            curColor = color;
+            curPlayTime = playTime;
+            runStart = i;
+        }
+    }
+    const slice = text.slice(runStart, len);
+    tokens.push({ text: slice, color: curColor, playTime: curPlayTime });
+    signature += `${curColor}:${len - runStart}:${curPlayTime ? 1 : 0};`;
+
+    return { tokens, signature };
+};
+
+const buildParsedLines = (unparsed: string, chars: CharData[]): ParsedLine[] => {
+    const rawLines = unparsed.split("\n");
+    const lines: ParsedLine[] = new Array(rawLines.length);
+    let offset = 0;
+    for (let i = 0; i < rawLines.length; i++) {
+        const text = rawLines[i];
+        const len = text.length;
+        const lineChars = chars.slice(offset, offset + len);
+        const { tokens, signature } = tokenizeLine(text, lineChars);
+        lines[i] = { text, chars: lineChars, tokens, signature };
+        offset += len + 1;
+    }
+    return lines;
 };
 
 const parse = (unparsed: string): Parsed => {
@@ -66,14 +136,14 @@ const parse = (unparsed: string): Parsed => {
         }
 
         return {
-            parsed,
-            chars,
-            score,
+            data: new Boxed({
+                chars,
+                lines: buildParsedLines(unparsed, chars),
+            }),
             initialRulerState,
             error: "",
         };
     } catch (e) {
-        console.log("!", e);
         const matched = e.message.match(/Unexpected token at (\d+):(\d+)/);
 
         const lineNumber: number = matched ? Number(matched[1]) - 1 : -1;
@@ -85,15 +155,18 @@ const parse = (unparsed: string): Parsed => {
         let error;
         let errorAt;
 
-        for (let i = 0; i < unparsed.length + 40; i++) {
-            if (lineCount === lineNumber && colCount === colNumber) {
-                errorAt = i;
-            }
-            if (unparsed[i] === "\n") {
-                lineCount++;
-                colCount = 0;
-            } else {
-                colCount++;
+        if (lineNumber >= 0 && colNumber >= 0) {
+            for (let i = 0; i <= unparsed.length; i++) {
+                if (lineCount === lineNumber && colCount === colNumber) {
+                    errorAt = i;
+                    break;
+                }
+                if (unparsed[i] === "\n") {
+                    lineCount++;
+                    colCount = 0;
+                } else {
+                    colCount++;
+                }
             }
         }
 
@@ -114,9 +187,10 @@ const parse = (unparsed: string): Parsed => {
         }
 
         return {
-            parsed: undefined,
-            chars,
-            score: undefined,
+            data: new Boxed({
+                chars,
+                lines: buildParsedLines(unparsed, chars),
+            }),
             initialRulerState: undefined,
             error,
         };
@@ -133,9 +207,8 @@ const getMsAtLine = (
     }
     let ms = 0;
     let counted = 0;
-    const tuneSplit = tune.split("");
-    for (let i = 0; i < tuneSplit.length; i++) {
-        const chr = tuneSplit[i];
+    for (let i = 0; i < tune.length; i++) {
+        const chr = tune[i];
         const ch = chars?.[i];
         if (counted >= line) {
             const [start] = ch?.playTime ?? [];
@@ -266,7 +339,7 @@ export function XenpaperApp(props: Props): React.ReactElement {
     const selectedLine = useDendriform<number>(0);
     selectedLine.useChange((line) => {
         soundEngine.setLoopStart(
-            getMsAtLine(tuneForm.value.tune, parsedForm.value.chars, line)
+            getMsAtLine(tuneForm.value.tune, parsedForm.value.data.value.chars, line)
         );
     });
 
@@ -285,17 +358,58 @@ export function XenpaperApp(props: Props): React.ReactElement {
     const rulerState = useRulerState(parsedForm.value.initialRulerState);
 
     useEffect(() => {
-        return soundEngine.onNote((note, on) => {
-            const id = `${note.track ?? ""}-${note.ms}-${note.hz}`;
+        let frameId = 0;
+        const pendingActive = new Map<string, MoscNoteMs | null>();
+        const pendingCollected = new Map<string, MoscNoteMs>();
+
+        const flush = () => {
+            frameId = 0;
+            if (pendingActive.size === 0 && pendingCollected.size === 0) {
+                return;
+            }
+            const collect = rulerState.value.collect;
             rulerState.set((draft) => {
-                if (on) {
-                    draft.notesActive.set(id, note);
-                    draft.notes.set(id, note);
-                } else {
-                    draft.notesActive.delete(id);
+                pendingActive.forEach((note, id) => {
+                    if (note) {
+                        draft.notesActive.set(id, note);
+                    } else {
+                        draft.notesActive.delete(id);
+                    }
+                });
+                if (collect) {
+                    pendingCollected.forEach((note, pitchId) => {
+                        if (!draft.notes.has(pitchId)) {
+                            draft.notes.set(pitchId, note);
+                        }
+                    });
                 }
             });
+            pendingActive.clear();
+            pendingCollected.clear();
+        };
+
+        const unsubscribe = soundEngine.onNote((note, on) => {
+            const id = `${note.track ?? ""}-${note.ms}-${note.hz}`;
+            if (on) {
+                pendingActive.set(id, note);
+                const pitchId = `${note.hz}-${note.label}`;
+                if (!rulerState.value.notes.has(pitchId)) {
+                    pendingCollected.set(pitchId, note);
+                }
+            } else {
+                pendingActive.set(id, null);
+            }
+            if (!frameId) {
+                frameId = requestAnimationFrame(flush);
+            }
         });
+
+        return () => {
+            unsubscribe();
+            if (frameId) {
+                cancelAnimationFrame(frameId);
+            }
+        };
     }, []);
 
     parsedForm.branch("initialRulerState").useChange((initialRulerState) => {
@@ -322,7 +436,7 @@ export function XenpaperApp(props: Props): React.ReactElement {
         soundEngine.gotoMs(
             getMsAtLine(
                 tuneForm.value.tune,
-                parsedForm.value.chars,
+                parsedForm.value.data.value.chars,
                 selectedLine.value
             )
         );
@@ -651,6 +765,80 @@ function EmbedLayout(props: EmbedLayoutProps): React.ReactElement {
 // codepanel
 //
 
+type CodeLineProps = {
+    lineIndex: number;
+    lineText: string;
+    tokens: LineToken[];
+    signature: string;
+    hasPlayStart: boolean;
+    hasNewline: boolean;
+    isSelected: boolean;
+    onSelectLine: (line: number) => void;
+    spansByLineRef: React.MutableRefObject<(HTMLSpanElement | null)[][]>;
+};
+
+const CodeLine = React.memo(
+    function CodeLine(props: CodeLineProps): React.ReactElement {
+        const {
+            lineIndex,
+            tokens,
+            hasPlayStart,
+            hasNewline,
+            isSelected,
+            onSelectLine,
+            spansByLineRef,
+        } = props;
+
+        const lineSpansRef = useRef<(HTMLSpanElement | null)[]>([]);
+        lineSpansRef.current.length = tokens.length;
+        spansByLineRef.current[lineIndex] = lineSpansRef.current;
+
+        const handlePlayStartClick = useCallback(() => {
+            onSelectLine(lineIndex);
+        }, [onSelectLine, lineIndex]);
+
+        return (
+            <>
+                {hasPlayStart && (
+                    <span
+                        className={
+                            isSelected ? "play-start selected" : "play-start"
+                        }
+                        onClick={handlePlayStartClick}
+                    >
+                        {">"}
+                    </span>
+                )}
+                {tokens.map((token, idx) =>
+                    token.playTime ? (
+                        <span
+                            key={idx}
+                            className={`char hl-${token.color}`}
+                            ref={(el) => {
+                                lineSpansRef.current[idx] = el;
+                            }}
+                        >
+                            {token.text}
+                        </span>
+                    ) : (
+                        <span key={idx} className={`char hl-${token.color}`}>
+                            {token.text}
+                        </span>
+                    )
+                )}
+                {hasNewline && <span className="char hl-delimiter">{"\n"}</span>}
+            </>
+        );
+    },
+    (prev, next) =>
+        prev.lineIndex === next.lineIndex &&
+        prev.lineText === next.lineText &&
+        prev.signature === next.signature &&
+        prev.hasPlayStart === next.hasPlayStart &&
+        prev.hasNewline === next.hasNewline &&
+        prev.isSelected === next.isSelected
+);
+
 type CodePanelProps = {
     tuneForm: Dendriform<TuneForm>;
     parsedForm: Dendriform<Parsed>;
@@ -658,57 +846,133 @@ type CodePanelProps = {
 };
 
 function CodePanel(props: CodePanelProps): React.ReactElement {
+    const spansByLineRef = useRef<(HTMLSpanElement | null)[][]>([]);
+    const tokensByLineRef = useRef<LineToken[][]>([]);
+    const activeSpansRef = useRef<Set<HTMLSpanElement>>(new Set());
+
+    const handleSelectLine = useCallback(
+        (line: number) => {
+            props.selectedLine.set(line);
+        },
+        [props.selectedLine]
+    );
+
+    useAnimationFrame(() => {
+        const activeSpans = activeSpansRef.current;
+        if (!soundEngine.playing()) {
+            if (activeSpans.size > 0) {
+                activeSpans.forEach((el) => el.classList.remove("active"));
+                activeSpans.clear();
+            }
+            return;
+        }
+
+        const time = soundEngine.position();
+        const nextActive = new Set<HTMLSpanElement>();
+        const tokensByLine = tokensByLineRef.current;
+        const spansByLine = spansByLineRef.current;
+
+        for (let l = 0; l < tokensByLine.length; l++) {
+            const tokens = tokensByLine[l];
+            const spans = spansByLine[l];
+            if (!tokens || !spans) continue;
+            for (let t = 0; t < tokens.length; t++) {
+                const playTime = tokens[t].playTime;
+                if (playTime && playTime[0] <= time && playTime[1] > time) {
+                    const el = spans[t];
+                    if (el) {
+                        nextActive.add(el);
+                        if (!activeSpans.has(el)) {
+                            el.classList.add("active");
+                        }
+                    }
+                }
+            }
+        }
+
+        activeSpans.forEach((el) => {
+            if (!nextActive.has(el)) {
+                el.classList.remove("active");
+            }
+        });
+        activeSpansRef.current = nextActive;
+    }, []);
+
     return props.tuneForm.render((form) => {
         const embed = form.branch("embed").useValue();
 
         // get dendriform state values
-        const { chars, error } = props.parsedForm.useValue();
+        const { data, error } = props.parsedForm.useValue();
+        const parsedLines = data.value.lines;
+        const selectedLineValue = props.selectedLine.useValue();
 
         // use value with a 200ms debounce for perf reasons
-        // this debounce does cause the code value to progress forward
-        // without the calculated syntax highlighting
-        // so colours will be momentarily skew-whiff
-        // but thats better than parsing the xenpaper AST at every keystroke
         const inputProps = useInput(form.branch("tune"), 200);
-        const tuneChars: string[] = inputProps.value.split("");
-        const charDataArray: (CharData | undefined)[] = tuneChars.map(
-            (chr, index) => chars?.[index]
-        );
+        const rawLines = inputProps.value.split("\n");
+        const numLines = rawLines.length;
+        const hasPlayStartButtons = numLines > 1;
 
-        const hasPlayStartButtons = tuneChars.some((ch) => ch === "\n");
-        let playStartLine = 0;
-
-        const charElements: React.ReactNode[] = [];
-
-        const createPlayStart = () => {
-            charElements.push(
-                <PlayStart
-                    key={`playstart${playStartLine}`}
-                    line={playStartLine++}
-                    selectedLine={props.selectedLine}
-                />
-            );
-        };
-
-        if (hasPlayStartButtons) {
-            createPlayStart();
+        let prefixLen = 0;
+        const minLen = Math.min(numLines, parsedLines.length);
+        while (
+            prefixLen < minLen &&
+            rawLines[prefixLen] === parsedLines[prefixLen].text
+        ) {
+            prefixLen++;
         }
-        charDataArray.forEach((charData, index) => {
-            const ch = tuneChars[index];
 
-            charElements.push(
-                <Char
-                    key={index}
-                    ch={ch}
-                    charData={charData}
-                    soundEngine={soundEngine}
+        const lineTokensArray: LineToken[][] = new Array(numLines);
+        const charElements: React.ReactNode[] = new Array(numLines);
+
+        for (let i = 0; i < numLines; i++) {
+            const lineText = rawLines[i];
+            let matchedParsed: ParsedLine | undefined;
+            if (i < prefixLen) {
+                matchedParsed = parsedLines[i];
+            } else {
+                const suffixParsedIdx = parsedLines.length - (numLines - i);
+                if (
+                    suffixParsedIdx >= prefixLen &&
+                    suffixParsedIdx >= 0 &&
+                    rawLines[i] === parsedLines[suffixParsedIdx]?.text
+                ) {
+                    matchedParsed = parsedLines[suffixParsedIdx];
+                } else {
+                    matchedParsed =
+                        parsedLines[Math.min(i, parsedLines.length - 1)];
+                }
+            }
+
+            let tokens: LineToken[];
+            let signature: string;
+            if (matchedParsed && matchedParsed.text === lineText) {
+                tokens = matchedParsed.tokens;
+                signature = matchedParsed.signature;
+            } else {
+                const tokenized = tokenizeLine(lineText, matchedParsed?.chars);
+                tokens = tokenized.tokens;
+                signature = tokenized.signature;
+            }
+
+            lineTokensArray[i] = tokens;
+            charElements[i] = (
+                <CodeLine
+                    key={i}
+                    lineIndex={i}
+                    lineText={lineText}
+                    tokens={tokens}
+                    signature={signature}
+                    hasPlayStart={hasPlayStartButtons}
+                    hasNewline={i < numLines - 1}
+                    isSelected={selectedLineValue === i}
+                    onSelectLine={handleSelectLine}
+                    spansByLineRef={spansByLineRef}
                 />
             );
+        }
 
-            if (ch === "\n") {
-                createPlayStart();
-            }
-        });
+        tokensByLineRef.current = lineTokensArray;
+        spansByLineRef.current.length = numLines;
 
         // stop event propagation here so we can detect clicks outside of this element in isolation
         const stopPropagation = (e: Event) => e.stopPropagation();
@@ -852,38 +1116,5 @@ const EditOnXenpaperButton = styled.a<EditOnXenpaperButtonProps>`
 
     @media all and (min-width: ${(props) => props.theme.widths.sm}) {
         font-size: ${(props) => (props.multiline ? "0.9rem" : "1.1rem")};
-    }
-`;
-
-type PlayStartProps = {
-    line: number;
-    selectedLine: Dendriform<number>;
-};
-
-const PlayStart = styled(({ line, selectedLine, ...props }: PlayStartProps) => {
-    const onClick = () => selectedLine.set(line);
-    return (
-        <span {...props} onClick={onClick}>
-            {">"}
-        </span>
-    );
-})`
-    position: absolute;
-    left: 0.8rem;
-    border: none;
-    display: block;
-    cursor: pointer;
-    color: ${(props) => props.theme.colors.text.placeholder};
-    outline: none;
-    opacity: ${(props) =>
-        props.selectedLine.useValue() === props.line ? "1" : ".2"};
-    pointer-events: auto;
-
-    transition: opacity 0.2s ease-out;
-
-    &:hover,
-    &:focus,
-    &:active {
-        opacity: 1;
     }
 `;

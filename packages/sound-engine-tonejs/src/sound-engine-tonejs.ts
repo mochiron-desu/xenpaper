@@ -42,11 +42,14 @@ export const OSC_TYPES = flatMap(OSC_TYPES_EXPANDED, type => [
     ...OSC_PARTIAL_SUFFIXES.map(suffix => `${type}${suffix}`)
 ]);
 
+const OSC_TYPES_SET = new Set(OSC_TYPES);
+
 export class SoundEngineTonejs extends SoundEngine {
 
     _started = false;
     _endMs = 0;
     _loopEndMs = 0;
+    _scoreDirty = false;
     _activeNoteEvents = new Set<MoscItemMs>();
 
     synth = new Tone.PolySynth(Tone.Synth, {
@@ -124,6 +127,9 @@ export class SoundEngineTonejs extends SoundEngine {
 
     async play(): Promise<void> {
         await this.start();
+        if(this._scoreDirty) {
+            this._scheduleScore();
+        }
         Tone.Transport.start();
     }
 
@@ -157,8 +163,29 @@ export class SoundEngineTonejs extends SoundEngine {
 
     async setScore(scoreMs: MoscScoreMs): Promise<void> {
         this.scoreMs = scoreMs;
+        this._endMs = scoreMs.lengthMs;
+        if(this._loopEndMs === 0) {
+            this.setLoopEnd(0);
+        }
+
+        if(this.playing()) {
+            this._scheduleScore();
+        } else {
+            this._scoreDirty = true;
+        }
+    }
+
+    _scheduleScore(): void {
+        this._scoreDirty = false;
+        if(!this.scoreMs) return;
 
         // clear all previous notes from tone transport
+        const transportAny = Tone.Transport as any;
+        if(transportAny._timeline && Array.isArray(transportAny._timeline._timeline)) {
+            transportAny._timeline._timeline.forEach((ev: any) => ev.dispose && ev.dispose());
+            transportAny._timeline._timeline = [];
+            transportAny._scheduledEvents = {};
+        }
         Tone.Transport.cancel();
 
         // ensure track synths exist for all tracks in score and reset volumes
@@ -172,25 +199,36 @@ export class SoundEngineTonejs extends SoundEngine {
             s.volume.value = 0;
         });
 
-        // add all new notes to tone transport
+        const eventsBySec = new Map<number, Array<(time: number) => void>>();
+        const addEvent = (sec: number, fn: (time: number) => void): void => {
+            let list = eventsBySec.get(sec);
+            if(!list) {
+                list = [];
+                eventsBySec.set(sec, list);
+            }
+            list.push(fn);
+        };
+
+        // group all new notes and events by timestamp so Tone.Transport schedules in O(1) sorted order
         this.scoreMs.sequence.forEach((item: MoscItemMs): void => {
             if(item.type === 'NOTE_MS') {
                 const noteMs = item as MoscNoteMs;
                 const targetSynth = this.getSynth(noteMs.track);
-                Tone.Transport.schedule((time: number) => {
+                const durationSec = (noteMs.msEnd - noteMs.ms) * 0.001;
+                addEvent(noteMs.ms * 0.001 + 0.1, (time: number) => {
                     targetSynth.triggerAttackRelease(
                         noteMs.hz,
-                        (noteMs.msEnd * 0.001) - (noteMs.ms * 0.001),
+                        durationSec,
                         time
                     );
                     this._activeNoteEvents.add(noteMs);
                     this._triggerEvent('note', noteMs, true);
-                }, noteMs.ms * 0.001 + 0.1); // schedule in the future slightly to avoid double note playing at end
+                });
 
-                Tone.Transport.schedule((time: number) => {
+                addEvent(noteMs.msEnd * 0.001 + 0.1, () => {
                     this._activeNoteEvents.delete(noteMs);
                     this._triggerEvent('note', noteMs, false);
-                }, noteMs.msEnd * 0.001 + 0.1);
+                });
 
                 return;
             }
@@ -200,13 +238,8 @@ export class SoundEngineTonejs extends SoundEngine {
                 const targetSynths = paramMs.track
                     ? [this.getSynth(paramMs.track)]
                     : [this.synth, ...Array.from(this.trackSynths.values())];
-                Tone.Transport.schedule(() => {
-                    // this is inaccurate
-                    // as tonejs calls these callbacks several ms ahead of schedule
-                    // and relies on scheduled events to pass the provided time
-                    // to schedule correctly, but param changes cannot accept
-                    // the time argument
-                    if(paramMs.value.type === 'osc' && OSC_TYPES.includes(paramMs.value.osc)) {
+                addEvent(paramMs.ms * 0.001, () => {
+                    if(paramMs.value.type === 'osc' && OSC_TYPES_SET.has(paramMs.value.osc)) {
                         targetSynths.forEach(s => s.set({
                             oscillator: {
                                 type: paramMs.value.osc,
@@ -232,8 +265,7 @@ export class SoundEngineTonejs extends SoundEngine {
                             s.volume.value = db;
                         });
                     }
-
-                }, paramMs.ms * 0.001);
+                });
 
                 return;
             }
@@ -244,18 +276,32 @@ export class SoundEngineTonejs extends SoundEngine {
                     this.setLoopEnd(0);
                 }
 
-                Tone.Transport.schedule(async () => {
+                addEvent(this._endMs * 0.001, () => {
                     if(Tone.Transport.loop) return;
 
                     Tone.Transport.stop();
                     this._triggerEvent('end', undefined);
-                }, this._endMs * 0.001);
+                });
 
                 return;
             }
 
             // @ts-ignore
             throw new Error(`Unexpected item type ${item.type} encountered`);
+        });
+
+        const sortedTimes = Array.from(eventsBySec.keys()).sort((a, b) => a - b);
+        sortedTimes.forEach((sec) => {
+            const callbacks = eventsBySec.get(sec)!;
+            if(callbacks.length === 1) {
+                Tone.Transport.schedule(callbacks[0], sec);
+            } else {
+                Tone.Transport.schedule((time: number) => {
+                    for(let i = 0; i < callbacks.length; i++) {
+                        callbacks[i](time);
+                    }
+                }, sec);
+            }
         });
     }
 }

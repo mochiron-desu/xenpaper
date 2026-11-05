@@ -1,4 +1,4 @@
-import {useState, useCallback, useEffect} from 'react';
+import {useState, useCallback, useEffect, useRef} from 'react';
 
 export const hashify = (newHash: string): string => {
     return encodeURIComponent(newHash)
@@ -6,21 +6,9 @@ export const hashify = (newHash: string): string => {
         .replace(/%20/g, '_');
 };
 
-const reverseString = (str: string): string => {
-    return str
-        .split('')
-        .reverse()
-        .join('');
-};
-
 export const unhashify = (hash: string): string => {
     return decodeURIComponent(
-        // browser support for negaitve lookbehinds is patchy
-        // and we want to replace all _ that arent preceded by % with %20
-        // so reverse the string, replace with a negative lookahead (well supported) and reverse again
-        reverseString(
-            reverseString(hash).replace(/_(?!%)/g, reverseString('%20'))
-        ).replace(/%_/g, '_')
+        hash.replace(/%_|_/g, match => (match === '%_' ? '_' : '%20'))
     );
 };
 
@@ -35,6 +23,9 @@ export const useHash = (): UseHashResult => {
         return initialHash;
     });
 
+    const lastEncodedRef = useRef<string>(window.location.hash.substr(1));
+    const timerRef = useRef<number>(0);
+
     const onHashChange = useCallback(() => {
         setHash(window.location.hash);
     }, []);
@@ -43,18 +34,27 @@ export const useHash = (): UseHashResult => {
         window.addEventListener('hashchange', onHashChange);
         return () => {
             window.removeEventListener('hashchange', onHashChange);
+            if(timerRef.current) {
+                window.clearTimeout(timerRef.current);
+            }
         };
     }, [onHashChange]);
 
     const _setHash = useCallback((newHash: string) => {
-        const newHashEncoded = hashify(newHash);
-        if (newHashEncoded !== hash) {
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore
-            window.history.replaceState(undefined, undefined, '#' + newHashEncoded);
-            window.localStorage?.setItem('lasttune', newHash);
+        if(timerRef.current) {
+            window.clearTimeout(timerRef.current);
         }
-    }, [hash]);
+        timerRef.current = window.setTimeout(() => {
+            const newHashEncoded = hashify(newHash);
+            if (newHashEncoded !== lastEncodedRef.current) {
+                lastEncodedRef.current = newHashEncoded;
+                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                // @ts-ignore
+                window.history.replaceState(undefined, undefined, '#' + newHashEncoded);
+                window.localStorage?.setItem('lasttune', newHash);
+            }
+        }, 300);
+    }, []);
 
     return [hash, _setHash] as const;
 };
