@@ -26,6 +26,7 @@ import type {
     SetOscType,
     SetEnvType,
     SetRulerRangeType,
+    SetTrackType,
     DelimiterType,
 } from "./grammar";
 
@@ -253,6 +254,7 @@ type Context = {
     scale: number[];
     scaleLabels: string[];
     octaveSize: number;
+    track?: string;
 };
 
 const times: [number, number][] = [];
@@ -274,6 +276,7 @@ const noteToMosc = (note: NoteType, context: Context): MoscNote[] => {
             hz,
             label,
             ...timeProps,
+            ...(context.track !== undefined ? { track: context.track } : {}),
         },
     ];
 };
@@ -301,6 +304,7 @@ const chordToMosc = (
                 hz,
                 label,
                 ...timeProps,
+                ...(context.track !== undefined ? { track: context.track } : {}),
             };
         });
 
@@ -326,6 +330,7 @@ const chordToMosc = (
                 context.octaveSize
             )}`,
             ...timeProps,
+            ...(context.track !== undefined ? { track: context.track } : {}),
         });
     };
 
@@ -524,6 +529,7 @@ const setterToMosc = (setter: SetterType, context: Context): MoscItem[] => {
                     type: "osc",
                     osc,
                 },
+                ...(context.track !== undefined ? { track: context.track } : {}),
             },
         ];
     }
@@ -541,6 +547,7 @@ const setterToMosc = (setter: SetterType, context: Context): MoscItem[] => {
                     s: s / 9,
                     r: ENV_VALUES[r] || 0,
                 },
+                ...(context.track !== undefined ? { track: context.track } : {}),
             },
         ];
     }
@@ -625,6 +632,8 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
         return {};
     }
 
+    times.length = 0;
+
     const INITIAL_TEMPO: MoscTempo = {
         type: "TEMPO",
         time: 0,
@@ -655,13 +664,34 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
 
     const scale = edoToRatios(12, 2);
 
-    const context: Context = {
+    const preambleContext: Context = {
         rootHz: 220,
         time: 0,
         subdivision: 0.5,
         scale,
         scaleLabels: edoToLabels(12, scale, 2),
         octaveSize: 2,
+    };
+
+    let context: Context = preambleContext;
+    const tracks = new Map<string, Context>();
+
+    const getOrCreateTrackContext = (trackId: string): Context => {
+        const existing = tracks.get(trackId);
+        if (existing) {
+            return existing;
+        }
+        const created: Context = {
+            rootHz: preambleContext.rootHz,
+            time: preambleContext.time,
+            subdivision: preambleContext.subdivision,
+            scale: [...preambleContext.scale],
+            scaleLabels: [...preambleContext.scaleLabels],
+            octaveSize: preambleContext.octaveSize,
+            track: trackId,
+        };
+        tracks.set(trackId, created);
+        return created;
     };
 
     const moscItems: MoscItem[] = [];
@@ -722,7 +752,20 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
         }
 
         if (type === "SetterGroup") {
-            (item as SetterGroupType).setters.forEach((setter) => {
+            const setters = (item as SetterGroupType).setters;
+            const firstTrackSetter = setters.find(
+                (s): s is SetTrackType => s.type === "SetTrack"
+            );
+            if (firstTrackSetter) {
+                context = getOrCreateTrackContext(firstTrackSetter.track);
+            }
+            setters.forEach((setter) => {
+                if (setter.type === "SetTrack") {
+                    context = getOrCreateTrackContext(
+                        (setter as SetTrackType).track
+                    );
+                    return;
+                }
                 moscItems.push(...setterToMosc(setter, context));
                 initialRulerState = setterToRulerState(
                     initialRulerState,
@@ -738,6 +781,11 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
 
     initialRulerState = rulerStateCaptureRootHz(initialRulerState, context);
 
+    const maxTime = Math.max(
+        preambleContext.time,
+        ...Array.from(tracks.values()).map((t) => t.time)
+    );
+
     const sequence = [
         INITIAL_TEMPO,
         INITIAL_OSC,
@@ -745,7 +793,7 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
         ...moscItems,
         {
             type: "END_TIME",
-            time: context.time,
+            time: maxTime,
         } as MoscEnd,
     ];
 
@@ -760,7 +808,7 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
 
     const score = {
         sequence,
-        lengthTime: context.time,
+        lengthTime: maxTime,
     };
 
     return {

@@ -619,11 +619,39 @@ export type SetRulerType = SetRulerRangeType|SetRulerPlotType;
 
 export const SetRuler = Any(SetRulerRange, SetRulerPlot);
 
+// track
+
+export type SetTrackValueType = NodeType & {
+    track: string;
+};
+
+export const SetTrackValue = node/*<SetTrackValueType>*/(
+    'SetTrackValue',
+    /^([a-zA-Z0-9_-]+)/,
+    ([track]: [string]) => ({
+        track,
+        len: track.length
+    })
+);
+
+export type SetTrackType = NodeType & {
+    track: string;
+};
+
+export const SetTrack = node/*<SetTrackType>*/(
+    'SetTrack',
+    All(/^((?:track|t):\s*)/, SetTrackValue),
+    ([prefix, value]: [string, SetTrackValueType]) => ({
+        track: value.track,
+        len: prefix.length + value.len
+    })
+);
+
 // setters
 
-export type SetterType = SetBpmType|SetBmsType|SetSubdivisionType|SetOscType|SetEnvType|SetRulerType;
+export type SetterType = SetBpmType|SetBmsType|SetSubdivisionType|SetOscType|SetEnvType|SetRulerType|SetTrackType;
 
-export const Setter = Any(SetBpm, SetBms, SetSubdivision, SetOsc, SetEnv, SetRuler);
+export const Setter = Any(SetBpm, SetBms, SetSubdivision, SetOsc, SetEnv, SetRuler, SetTrack);
 
 export type SetterGroupType = NodeType & {
     setters: SetterType[];

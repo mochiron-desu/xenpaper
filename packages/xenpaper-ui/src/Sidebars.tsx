@@ -316,6 +316,24 @@ export const SidebarInfo = (props: SidebarInfoProps): React.ReactElement => {
                 .
             </B>
             <Box pt={4}>
+                <H>Tracks</H>
+            </Box>
+            <B>
+                Multiple independent tracks can be created using{" "}
+                <C>(track:...)</C> or its shorthand <C>(t:...)</C>. Each track
+                starts from the beginning of the score (inheriting any global
+                scale, root, or division set before the first track) and has its
+                own independent synth voice. Switching back to an existing track
+                resumes from where that track left off.
+                <Ex
+                    tune={
+                        "(track:bass; osc:sawtooth; env:2856)\n`0--- `5--- `7--- `0---\n(track:lead; osc:triangle; env:2856)\n0 4 7 12 9 5 4 0 | 2 5 7 11 12---"
+                    }
+                    color="pitch"
+                    onSetTune={onSetTune}
+                />
+            </B>
+            <Box pt={4}>
                 <H>Ruler</H>
             </Box>
             <B>

@@ -1,4 +1,8 @@
 import {processGrammar} from '../process-grammar';
+import {XenpaperGrammar} from '../grammar';
+import Parser from 'rd-parse';
+
+const parser = Parser(XenpaperGrammar);
 
 expect.extend({
   toBeAround(actual, expected, precision = 2) {
@@ -746,6 +750,116 @@ describe('grammar to ruler state', () => {
             octaveSize: 2,
             plots: [],
             rootHz: 220
+        });
+    });
+
+    it('should translate sequential multi-track scores and inherit preamble state', () => {
+        const ast = parser('{r110Hz} (div:1) (track:cello; osc:sawtooth) 0 12 (track:v1; osc:sine) . 12 12');
+        expect(processGrammar(ast).score).toEqual({
+            sequence: [
+                ...INITIAL,
+                {
+                    type: 'PARAM_TIME',
+                    time: 0,
+                    track: 'cello',
+                    value: {
+                        type: 'osc',
+                        osc: 'sawtooth'
+                    }
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 0,
+                    timeEnd: 1,
+                    hz: 110,
+                    label: '0\\12  0.0c',
+                    track: 'cello'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 1,
+                    timeEnd: 2,
+                    hz: 220,
+                    label: '0\\12  0.0c',
+                    track: 'cello'
+                },
+                {
+                    type: 'PARAM_TIME',
+                    time: 0,
+                    track: 'v1',
+                    value: {
+                        type: 'osc',
+                        osc: 'sine'
+                    }
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 1,
+                    timeEnd: 2,
+                    hz: 220,
+                    label: '0\\12  0.0c',
+                    track: 'v1'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 2,
+                    timeEnd: 3,
+                    hz: 220,
+                    label: '0\\12  0.0c',
+                    track: 'v1'
+                },
+                {
+                    type: 'END_TIME',
+                    time: 3
+                }
+            ],
+            lengthTime: 3
+        });
+    });
+
+    it('should resume track time cursor when interleaving tracks bar-by-bar', () => {
+        const ast = parser('(div:1) (t:1) 0 (t:2) 12 (t:1) 12 (t:2) 0');
+        expect(processGrammar(ast).score).toEqual({
+            sequence: [
+                ...INITIAL,
+                {
+                    type: 'NOTE_TIME',
+                    time: 0,
+                    timeEnd: 1,
+                    hz: 220,
+                    label: '0\\12  0.0c',
+                    track: '1'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 0,
+                    timeEnd: 1,
+                    hz: 440,
+                    label: '0\\12  0.0c',
+                    track: '2'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 1,
+                    timeEnd: 2,
+                    hz: 440,
+                    label: '0\\12  0.0c',
+                    track: '1'
+                },
+                {
+                    type: 'NOTE_TIME',
+                    time: 1,
+                    timeEnd: 2,
+                    hz: 220,
+                    label: '0\\12  0.0c',
+                    track: '2'
+                },
+                {
+                    type: 'END_TIME',
+                    time: 2
+                }
+            ],
+            lengthTime: 2
         });
     });
 });

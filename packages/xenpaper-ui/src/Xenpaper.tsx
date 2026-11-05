@@ -137,18 +137,22 @@ const getMsAtLine = (
     for (let i = 0; i < tuneSplit.length; i++) {
         const chr = tuneSplit[i];
         const ch = chars?.[i];
-        const [, end] = ch?.playTime ?? [];
-        if (end !== undefined) {
-            ms = end;
+        if (counted >= line) {
+            const [start] = ch?.playTime ?? [];
+            if (start !== undefined) {
+                return start;
+            }
+        } else {
+            const [, end] = ch?.playTime ?? [];
+            if (end !== undefined) {
+                ms = end;
+            }
         }
         if (chr === "\n") {
             counted++;
-            if (counted === line) {
-                return ms;
-            }
         }
     }
-    return 0;
+    return ms;
 };
 
 //
@@ -282,7 +286,7 @@ export function XenpaperApp(props: Props): React.ReactElement {
 
     useEffect(() => {
         return soundEngine.onNote((note, on) => {
-            const id = `${note.ms}-${note.hz}`;
+            const id = `${note.track ?? ""}-${note.ms}-${note.hz}`;
             rulerState.set((draft) => {
                 if (on) {
                     draft.notesActive.set(id, note);
