@@ -1,5 +1,6 @@
 {
   "private": true,
+  "license": "MIT",
   "scripts": {
     "test": "yarn lerna run test",
     "lint": "yarn lerna run lint",

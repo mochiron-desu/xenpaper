@@ -1769,6 +1769,103 @@ describe('grammar', () => {
                 ]);
             });
 
+            it('should parse sequence with volume setter and shorthands', () => {
+                expect(strip(parser('(volume:2; vol:0.5; v: 1)')).sequence.items).toEqual([
+                    {
+                        type: 'SetterGroup',
+                        setters: [
+                            {
+                                type: 'SetVolume',
+                                volume: 2,
+                                len: 8
+                            },
+                            {
+                                type: 'Semicolon',
+                                len: 2
+                            },
+                            {
+                                type: 'SetVolume',
+                                volume: 0.5,
+                                len: 7
+                            },
+                            {
+                                type: 'Semicolon',
+                                len: 2
+                            },
+                            {
+                                type: 'SetVolume',
+                                volume: 1,
+                                len: 4
+                            }
+                        ],
+                        len: 25
+                    }
+                ]);
+            });
+
+            it('should parse sequence with primes setter', () => {
+                expect(strip(parser('(primes: 2/1 1900c)')).sequence.items).toEqual([
+                    {
+                        type: 'SetterGroup',
+                        setters: [
+                            {
+                                type: 'SetPrimes',
+                                len: 17,
+                                primesPitches: [
+                                    {
+                                        type: 'Pitch',
+                                        value: {
+                                            type: 'PitchRatio',
+                                            numerator: 2,
+                                            denominator: 1,
+                                            len: 3
+                                        },
+                                        len: 3
+                                    },
+                                    {
+                                        type: 'Whitespace',
+                                        len: 1
+                                    },
+                                    {
+                                        type: 'Pitch',
+                                        value: {
+                                            type: 'PitchCents',
+                                            cents: 1900,
+                                            len: 5
+                                        },
+                                        len: 5
+                                    }
+                                ]
+                            }
+                        ],
+                        len: 19
+                    }
+                ]);
+            });
+
+            it('should parse hold across a line break', () => {
+                expect(strip(parser('0\n--')).sequence.items).toEqual([
+                    {
+                        type: 'Note',
+                        pitch: {
+                            type: 'Pitch',
+                            value: {
+                                type: 'PitchDegree',
+                                degree: 0,
+                                len: 1
+                            },
+                            len: 1
+                        },
+                        tail: {
+                            type: 'Hold',
+                            length: 2,
+                            len: 3
+                        },
+                        len: 4
+                    }
+                ]);
+            });
+
             it('should error if setter is empty or not delimited properly', () => {
                 expect(() => parser('()')).toThrow('Unexpected token at 1:2. Remainder: )');
                 expect(() => parser('(div:16;)')).toThrow('Unexpected token at 1:9. Remainder: )');

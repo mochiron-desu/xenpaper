@@ -3,7 +3,7 @@
   "main": "src/index.ts",
   "version": "0.0.0",
   "description": "xenpaper-ui",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "author": "Damien Clarke",
   "files": [
     "lib",

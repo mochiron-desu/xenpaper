@@ -27,6 +27,8 @@ import type {
     SetEnvType,
     SetRulerRangeType,
     SetTrackType,
+    SetVolumeType,
+    SetPrimesType,
     DelimiterType,
 } from "./grammar";
 
@@ -63,6 +65,69 @@ const limit = (name: string, value: number, min: number, max: number): void => {
 // pitch math
 //
 
+const LIST_OF_PRIMES: number[] = [
+    2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
+    73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151,
+    157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 227, 229, 233,
+    239, 241, 251, 257, 263, 269, 271, 277, 281, 283, 293, 307, 311, 313, 317,
+    331, 337, 347, 349, 353, 359, 367, 373, 379, 383, 389, 397, 401, 409, 419,
+    421, 431, 433, 439, 443, 449, 457, 461, 463, 467, 479, 487, 491, 499, 503,
+    509, 521, 523, 541, 547, 557, 563, 569, 571, 577, 587, 593, 599, 601, 607,
+    613, 617, 619, 631, 641, 643, 647, 653, 659, 661, 673, 677, 683, 691, 701,
+    709, 719, 727, 733, 739, 743, 751, 757, 761, 769, 773, 787, 797, 809, 811,
+    821, 823, 827, 829, 839, 853, 857, 859, 863, 877, 881, 883, 887, 907, 911,
+    919, 929, 937, 941, 947, 953, 967, 971, 977, 983, 991, 997,
+];
+
+const primeFactorize = (n: number): number[] | null => {
+    const factors: number[] = [];
+    LIST_OF_PRIMES.every((p) => {
+        let power = 0;
+        while (n % p === 0) {
+            power++;
+            n /= p;
+        }
+        factors.push(power);
+        return n > 1;
+    });
+    if (n > 1) {
+        return null;
+    }
+    return factors;
+};
+
+const realizeRatio = (num: number, denom: number, context: Context): number => {
+    if (num === 0 || denom === 0) {
+        throw new Error(
+            `Invalid ratio: ${num}/${denom}. Numerator/denominator cannot be 0.`
+        );
+    }
+    if (!context.primesTuning || context.primesTuning.length === 0) {
+        return num / denom;
+    }
+    const numFactors = primeFactorize(num);
+    const denomFactors = primeFactorize(denom);
+    if (numFactors === null || denomFactors === null) {
+        return num / denom;
+    }
+    let ratio = 1.0;
+    numFactors.forEach((power, i) => {
+        const base =
+            context.primesTuning.length > i
+                ? context.primesTuning[i]
+                : LIST_OF_PRIMES[i];
+        ratio *= Math.pow(base, power);
+    });
+    denomFactors.forEach((power, i) => {
+        const base =
+            context.primesTuning.length > i
+                ? context.primesTuning[i]
+                : LIST_OF_PRIMES[i];
+        ratio /= Math.pow(base, power);
+    });
+    return ratio;
+};
+
 export const pitchToRatio = (pitch: PitchType, context: Context): number => {
     const { scale, octaveSize } = context;
     limit("Equave size", octaveSize, -20, 20);
@@ -72,7 +137,7 @@ export const pitchToRatio = (pitch: PitchType, context: Context): number => {
 
     if (type === "PitchRatio") {
         const { numerator, denominator } = pitch.value as PitchRatioType;
-        const ratio = numerator / denominator;
+        const ratio = realizeRatio(numerator, denominator, context);
         limit("Pitch ratio", ratio, 0, 100);
         return ratio * octaveMulti;
     }
@@ -97,6 +162,12 @@ export const pitchToRatio = (pitch: PitchType, context: Context): number => {
         return pitchDegreeToRatio(degree, scale, octaveSize) * octaveMulti;
     }
 
+    if (type === "PitchHz") {
+        const { hz } = pitch.value as PitchHzType;
+        limit("Hz", hz, 0, 20000);
+        return (hz / context.rootHz) * octaveMulti;
+    }
+
     throw new Error(`Unknown pitch type "${type}"`);
 };
 
@@ -112,18 +183,14 @@ const pitchDegreeWrap = (degree: number, scale: number[]): [number, number] => {
     limit("Scale degree", degree, -1000, 1000);
 
     const steps = scale.length;
-    let octave = 0;
-
-    while (degree >= steps && octave > -20) {
-        degree -= steps;
-        octave++;
-    }
-    while (degree < 0 && octave < 20) {
-        degree += steps;
-        octave--;
+    if (steps === 0) {
+        return [0, 0];
     }
 
-    return [degree, octave];
+    const octave = Math.floor(degree / steps);
+    const wrappedDegree = degree - octave * steps;
+
+    return [wrappedDegree, octave];
 };
 
 const pitchDegreeToRatio = (
@@ -177,13 +244,26 @@ const tailToTime = (
 //
 
 const ratioWrap = (ratio: number, octaveSize: number): number => {
-    while (ratio < 1) {
-        ratio *= octaveSize;
+    if (
+        octaveSize <= 0 ||
+        octaveSize === 1 ||
+        ratio <= 0 ||
+        !Number.isFinite(ratio) ||
+        !Number.isFinite(octaveSize)
+    ) {
+        return ratio;
     }
-    while (ratio > octaveSize) {
-        ratio /= octaveSize;
+    const ratioInEquaves = Math.log2(ratio) / Math.log2(octaveSize);
+    if (ratioInEquaves === 0 || ratioInEquaves === 1) {
+        return ratio;
     }
-    return ratio;
+    const k =
+        ratioInEquaves > 1
+            ? Math.ceil(ratioInEquaves) - 1
+            : ratioInEquaves < 0
+            ? Math.floor(ratioInEquaves)
+            : 0;
+    return ratio * Math.pow(octaveSize, -k);
 };
 
 const ratioToCentsLabel = (ratio: number, octaveSize: number): string => {
@@ -254,6 +334,7 @@ type Context = {
     scale: number[];
     scaleLabels: string[];
     octaveSize: number;
+    primesTuning: number[];
     track?: string;
 };
 
@@ -322,11 +403,12 @@ const chordToMosc = (
 
     const ratioPitchTypes: MoscNote[] = [];
     const addRatioPitchType = (numerator: number): void => {
+        const ratio = realizeRatio(numerator, firstDenominator, context);
         ratioPitchTypes.push({
             type: "NOTE_TIME",
-            hz: (numerator / firstDenominator) * context.rootHz,
+            hz: ratio * context.rootHz,
             label: `${numerator}/${firstDenominator}  ${ratioToCentsLabel(
-                numerator / firstDenominator,
+                ratio,
                 context.octaveSize
             )}`,
             ...timeProps,
@@ -408,12 +490,15 @@ const setScale = (setScale: SetScaleType, context: Context): void => {
             })) as PitchType[];
         }
 
-        context.scale = filteredPitches.map((pitch) =>
+        const newScale = filteredPitches.map((pitch) =>
             pitchToRatio(pitch, context)
         );
-        context.scaleLabels = filteredPitches.map((pitch) =>
+        const newScaleLabels = filteredPitches.map((pitch) =>
             pitchToLabel(pitch, context)
         );
+
+        context.scale = newScale;
+        context.scaleLabels = newScaleLabels;
 
         if (scaleOctaveMarker) {
             context.octaveSize = context.scale.pop() || 2;
@@ -425,6 +510,8 @@ const setScale = (setScale: SetScaleType, context: Context): void => {
 
     if (type === "EdoScale") {
         const { divisions, octaveSize } = scale as EdoScaleType;
+        limit("EDO divisions", divisions, 1, 10000);
+        limit("Equave size", octaveSize, 0.001, 20);
         context.scale = edoToRatios(divisions, octaveSize);
         context.scaleLabels = edoToLabels(divisions, context.scale, octaveSize);
         context.octaveSize = octaveSize;
@@ -442,7 +529,7 @@ const setScale = (setScale: SetScaleType, context: Context): void => {
         let lastNumerator = 0;
 
         const addRatio = (numerator: number): void => {
-            const ratio = numerator / firstDenominator;
+            const ratio = realizeRatio(numerator, firstDenominator, context);
             context.scale.push(ratio);
             const centsLabel = ratioToCentsLabel(ratio, 2);
             context.scaleLabels.push(
@@ -482,6 +569,16 @@ const setScale = (setScale: SetScaleType, context: Context): void => {
     }
 
     throw new Error(`Unknown scale type "${type}"`);
+};
+
+const setPrimes = (setPrimes: SetPrimesType, context: Context): void => {
+    const { primesPitches } = setPrimes;
+    const filteredPitches: PitchType[] = primesPitches.filter(
+        (pitch): pitch is PitchType => !pitch.delimiter
+    ) as PitchType[];
+    context.primesTuning = filteredPitches.map((pitch) =>
+        pitchToRatio(pitch, context)
+    );
 };
 
 const setterToMosc = (setter: SetterType, context: Context): MoscItem[] => {
@@ -546,6 +643,22 @@ const setterToMosc = (setter: SetterType, context: Context): MoscItem[] => {
                     d: ENV_VALUES[d] || 0,
                     s: s / 9,
                     r: ENV_VALUES[r] || 0,
+                },
+                ...(context.track !== undefined ? { track: context.track } : {}),
+            },
+        ];
+    }
+
+    if (type === "SetVolume") {
+        const { volume } = setter as SetVolumeType;
+        limit("Volume", volume, 0, 10);
+        return [
+            {
+                type: "PARAM_TIME",
+                time: context.time,
+                value: {
+                    type: "vol",
+                    vol: volume,
                 },
                 ...(context.track !== undefined ? { track: context.track } : {}),
             },
@@ -671,6 +784,7 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
         scale,
         scaleLabels: edoToLabels(12, scale, 2),
         octaveSize: 2,
+        primesTuning: [],
     };
 
     let context: Context = preambleContext;
@@ -688,6 +802,7 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
             scale: [...preambleContext.scale],
             scaleLabels: [...preambleContext.scaleLabels],
             octaveSize: preambleContext.octaveSize,
+            primesTuning: [...preambleContext.primesTuning],
             track: trackId,
         };
         tracks.set(trackId, created);
@@ -764,6 +879,10 @@ export const processGrammar = (grammar: XenpaperAST): Processed => {
                     context = getOrCreateTrackContext(
                         (setter as SetTrackType).track
                     );
+                    return;
+                }
+                if (setter.type === "SetPrimes") {
+                    setPrimes(setter as SetPrimesType, context);
                     return;
                 }
                 moscItems.push(...setterToMosc(setter, context));

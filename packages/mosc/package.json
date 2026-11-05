@@ -3,7 +3,7 @@
   "main": "src/mosc.ts",
   "version": "0.0.1",
   "description": "mosc",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "author": "Damien Clarke",
   "repository": {
     "type": "git",
