@@ -62,6 +62,31 @@ export class SoundEngineTonejs extends SoundEngine {
         }
     }).chain(Tone.Destination);
 
+    trackSynths = new Map<string, Tone.PolySynth>();
+
+    getSynth(track?: string): Tone.PolySynth {
+        if(!track) {
+            return this.synth;
+        }
+        let synth = this.trackSynths.get(track);
+        if(!synth) {
+            synth = new Tone.PolySynth(Tone.Synth, {
+                oscillator: {
+                    type: 'sine',
+                    volume: OSC_VOLUME
+                },
+                envelope: {
+                    attack: 0.01,
+                    sustain: 0.5,
+                    decay: 0.25,
+                    release: 0.5
+                }
+            }).chain(Tone.Destination);
+            this.trackSynths.set(track, synth);
+        }
+        return synth;
+    }
+
     playing(): boolean {
         return Tone.Transport.state === 'started';
     }
@@ -85,6 +110,7 @@ export class SoundEngineTonejs extends SoundEngine {
 
             const onEnd = () => {
                 this.synth.releaseAll();
+                this.trackSynths.forEach(s => s.releaseAll());
                 this._activeNoteEvents.forEach(noteMs => {
                     this._triggerEvent('note', noteMs, false);
                 });
@@ -135,12 +161,20 @@ export class SoundEngineTonejs extends SoundEngine {
         // clear all previous notes from tone transport
         Tone.Transport.cancel();
 
+        // ensure track synths exist for all tracks in score
+        this.scoreMs.sequence.forEach((item: MoscItemMs): void => {
+            if((item.type === 'NOTE_MS' || item.type === 'PARAM_MS') && item.track) {
+                this.getSynth(item.track);
+            }
+        });
+
         // add all new notes to tone transport
         this.scoreMs.sequence.forEach((item: MoscItemMs): void => {
             if(item.type === 'NOTE_MS') {
                 const noteMs = item as MoscNoteMs;
+                const targetSynth = this.getSynth(noteMs.track);
                 Tone.Transport.schedule((time: number) => {
-                    this.synth.triggerAttackRelease(
+                    targetSynth.triggerAttackRelease(
                         noteMs.hz,
                         (noteMs.msEnd * 0.001) - (noteMs.ms * 0.001),
                         time
@@ -159,6 +193,9 @@ export class SoundEngineTonejs extends SoundEngine {
 
             if(item.type === 'PARAM_MS') {
                 const paramMs = item as MoscParamMs;
+                const targetSynths = paramMs.track
+                    ? [this.getSynth(paramMs.track)]
+                    : [this.synth, ...Array.from(this.trackSynths.values())];
                 Tone.Transport.schedule(() => {
                     // this is inaccurate
                     // as tonejs calls these callbacks several ms ahead of schedule
@@ -166,22 +203,22 @@ export class SoundEngineTonejs extends SoundEngine {
                     // to schedule correctly, but param changes cannot accept
                     // the time argument
                     if(paramMs.value.type === 'osc' && OSC_TYPES.includes(paramMs.value.osc)) {
-                        this.synth.set({
+                        targetSynths.forEach(s => s.set({
                             oscillator: {
                                 type: paramMs.value.osc,
                                 volume: OSC_VOLUME
                             }
-                        });
+                        }));
                     }
                     if(paramMs.value.type === 'env') {
-                        this.synth.set({
+                        targetSynths.forEach(s => s.set({
                             envelope: {
                                 attack: paramMs.value.a,
                                 decay: paramMs.value.d,
                                 sustain: paramMs.value.s,
                                 release: paramMs.value.r
                             }
-                        });
+                        }));
                     }
 
                 }, paramMs.ms * 0.001);

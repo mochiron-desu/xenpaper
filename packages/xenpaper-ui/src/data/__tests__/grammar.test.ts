@@ -1744,6 +1744,31 @@ describe('grammar', () => {
                 ]);
             });
 
+            it('should parse sequence with track setter and shorthand', () => {
+                expect(strip(parser('(track:cello; t: v1)')).sequence.items).toEqual([
+                    {
+                        type: 'SetterGroup',
+                        setters: [
+                            {
+                                type: 'SetTrack',
+                                track: 'cello',
+                                len: 11
+                            },
+                            {
+                                type: 'Semicolon',
+                                len: 2
+                            },
+                            {
+                                type: 'SetTrack',
+                                track: 'v1',
+                                len: 5
+                            }
+                        ],
+                        len: 20
+                    }
+                ]);
+            });
+
             it('should error if setter is empty or not delimited properly', () => {
                 expect(() => parser('()')).toThrow('Unexpected token at 1:2. Remainder: )');
                 expect(() => parser('(div:16;)')).toThrow('Unexpected token at 1:9. Remainder: )');

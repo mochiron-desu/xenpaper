@@ -55,6 +55,7 @@ const colorMap = new Map<string,HighlightColor>([
     ['SetRulerPlot','setter'],
     ['SetRulerRange','setter'],
     ['SetRulerRange.Pitch','setter'],
+    ['SetTrack','setter'],
     ['SetterGroup','setterGroup'],
     ['SetterGroup.Semicolon','setterGroup'],
     ['Comment','comment']
